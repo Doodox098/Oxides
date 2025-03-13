@@ -43,15 +43,19 @@ def get_ppm(oxide_models, global_shift_delta, reference, config):
     return group_oxygen, oxides_oxygen
 
 if __name__ == '__main__':
+    import warnings
+    warnings.filterwarnings("ignore")
     parser = argparse.ArgumentParser()
     parser.add_argument('--config', type=str, default='config.json')
-    parser.add_argument('--reference_path', type=str)
+    parser.add_argument('--reference_path', type=str, default=None)
     parser.add_argument('--oxide_params', type=str, default='params.json')
     args = parser.parse_args()
     with open(args.config, 'r') as f:
         config = json.load(f)
     with open(args.oxide_params, 'r') as f:
         oxide_params = json.load(f)
+    if args.reference_path is None:
+        args.reference_path = input('Enter path to FGA file: ')
     reference = reference_read(args.reference_path, config)
     oxygen, time = reference[:2]
     oxide_models = {}

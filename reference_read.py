@@ -18,7 +18,7 @@ def reference_read(path, config):
                            data['dT1'][~data['dT1'].isna()].sort_values())
     temp = (np.sort(temp) + 273)[::temp_step]
     gauss = gen_gauss(len(values), sigma)
-    smoothed_mean = np.convolve(values, gauss, mode='same')[::temp_step]
+    smoothed_mean = np.convolve(np.maximum(np.nan_to_num(values), 0), gauss, mode='same')[::temp_step]
     v_max = smoothed_mean.max()
 
     return torch.tensor(smoothed_mean / v_max), torch.tensor(temp), v_max, total_oxygen

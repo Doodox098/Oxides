@@ -89,6 +89,7 @@ def train(oxide_models, global_shift_delta, reference, optimizer, config):
     delete_after = config['delete_after']
     unstable_after = config['unstable_after']  # Number of iterations to check for monotonicity
     stable_after = config['stable_after']
+    max_instability_duration = config['instability_duration']
     window_size = config['window_size']
     frames = []
     begin_losses = []
@@ -106,6 +107,7 @@ def train(oxide_models, global_shift_delta, reference, optimizer, config):
         }
         for oxide_name in oxide_models.keys()
     }
+    instability_duration = 0
     try:
         for it in tqdm.tqdm(range(num_epoch)):
             oxide_models.train()
@@ -183,8 +185,13 @@ def train(oxide_models, global_shift_delta, reference, optimizer, config):
                 if oxide_direction_info[oxide_name]["is_stable"]:
                     any_stable = True
 
+            if not any_stable:
+                instability_duration += 1
+            else:
+                instability_duration = 0
+
             # Stop training if all oxides are oscillating
-            if not any_stable and it > stop_after:
+            if instability_duration >= max_instability_duration and it > stop_after:
                 print(f"Stopping training as all oxides are oscillating. Last Epoch: {it}")
                 break
             delete_oxides(oxide_models, global_shift, reference, it, config)
