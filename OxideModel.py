@@ -12,13 +12,22 @@ class ExponentialIntegral(Function):
 
     @staticmethod
     def forward(ctx, input):
-        ctx.save_for_backward(input)
-        return expi(input.detach().cpu())
+        # Добавляем ограничения на входные значения
+        # input_clamped = torch.clamp(input, min=-100, max=100)
+        input_clamped = input
+        ctx.save_for_backward(input_clamped)
+        with torch.no_grad():
+            output = torch.from_numpy(expi(input_clamped.detach().cpu().numpy()))
+        return output.to(input.device)
 
     @staticmethod
     def backward(ctx, grad_output):
         input, = ctx.saved_tensors
-        return grad_output * torch.exp(input) / input
+        # Добавляем стабилизацию для малых значений
+        safe_input = torch.where(torch.abs(input) < 1e-10,
+                                 torch.ones_like(input) * 1e-10,
+                                 input)
+        return grad_output * torch.exp(safe_input) / safe_input
 
 
 class ReLU2(Function):
@@ -64,14 +73,11 @@ class OxideModel(torch.nn.Module):
             torch.tensor([np.log(v_state['init'] / v_state['scale'])], **parameter_config))
 
     def get_t_beg(self):
-        return self.b_state['init'] + self.b_state['delta'] * (
-                    2 * torch.nn.functional.sigmoid(self.T_beg_delta * self.b_state['delta_scale']) - 1) \
-            + self.t_state['delta'] * (
-                        2 * torch.nn.functional.sigmoid(self.T_max_delta * self.t_state['delta_scale']) - 1)
-
+        return self.b_state['init'] + self.b_state['delta'] \
+                * torch.nn.functional.tanh(self.T_beg_delta * self.b_state['delta_scale'])
     def get_t_max(self):
-        return self.t_state['init'] + self.t_state['delta'] * (
-                    2 * torch.nn.functional.sigmoid(self.T_max_delta * self.t_state['delta_scale']) - 1)
+        return self.t_state['init'] + self.t_state['delta'] \
+                * torch.nn.functional.tanh(self.T_max_delta * self.t_state['delta_scale'])
 
     def get_v_max(self):
         return torch.exp(self.V_max) * self.v_state['scale']
@@ -89,31 +95,42 @@ class OxideModel(torch.nn.Module):
         def integral(t, K, E):
             return torch.exp(K) * (t * torch.exp(-E / t) + E * Ei(-E / t))
 
-        assert not torch.any(torch.isnan(self.E)), "NaN in s.E"
-        assert not torch.any(torch.isnan(self.V_max)), f"NaN in s.V"
+        # Добавляем проверки на NaN
+        assert not torch.any(torch.isnan(self.E)), "NaN in self.E"
+        assert not torch.any(torch.isnan(self.V_max)), "NaN in self.V_max"
         assert not torch.any(torch.isnan(self.T_max_delta)), "NaN in T_max_delta"
 
-        E = torch.exp(self.E) * self.e_state['scale']
-        V = torch.exp(self.V_max) * self.v_state['scale']
-        T_max = self.t_state['init'] + self.t_state['delta'] * (
-                    2 * torch.nn.functional.sigmoid(self.T_max_delta * self.t_state['delta_scale']) - 1) + global_shift
-        assert not torch.any(torch.isnan(E)), "NaN in E"
-        assert not torch.any(torch.isnan(V)), "NaN in V"
-        assert not torch.any(torch.isnan(T_max)), "NaN in T_max"
+        E = torch.clamp(torch.exp(self.E) * self.e_state['scale'], min=1e-10, max=1e10)
+        V = torch.clamp(torch.exp(self.V_max) * self.v_state['scale'], min=1e-10, max=1e10)
+        T_max = self.t_state['init'] + self.t_state['delta'] \
+                * torch.nn.functional.tanh(self.T_max_delta * self.t_state['delta_scale']) + global_shift
+
+        # Стабилизируем вычисления
+        safe_T_max = torch.clamp(T_max, min=1e-10)
+        safe_input = torch.clamp(input, min=1e-10)
 
         if self.model == 'first':
-            K = E / T_max + torch.log(E / (T_max ** 2))
-            result = integral(input, K, E) - integral(T_max, K, E)
-            assert not torch.any(torch.isnan(K)), f"NaN in K : {T_max =} {E =}"
-            assert not torch.any(torch.isnan(integral(input, K, E))), f"NaN in integral({input=}, {K=}, {E=})"
-            assert not torch.any(torch.isnan(integral(T_max, K, E))), f"NaN in integral({T_max=}, {K=}, {E=})"
-            assert not torch.any(torch.isnan(V * torch.exp(f(input, K, E) - f(T_max, K, E) - result))), \
-                "NaN in V * torch.exp(f(input, K ,E) - f(T_max, K, E) - result)"
-            return V * torch.exp(f(input, K, E) - f(T_max, K, E) - result)
+            K = E / safe_T_max + torch.log(E / (safe_T_max ** 2))
+            # Стабилизируем вычисления интегралов
+            integral_input = integral(safe_input, K, E)
+            integral_T_max = integral(safe_T_max, K, E)
+            result = integral_input - integral_T_max
+
+            # Стабилизируем экспоненту
+            exp_arg = f(safe_input, K, E) - f(safe_T_max, K, E) - result
+            exp_arg = torch.clamp(exp_arg, min=-100, max=100)
+            return V * torch.exp(exp_arg)
 
         if self.model == 'second':
-            U = V ** 0.5
-            K = E / T_max + (2 / 3) * torch.log((3 / 2) * E * U / (T_max ** 2))
-            result = integral(input, K, E) - integral(T_max, K, E)
-            return torch.exp(f(input, K, E) - f(T_max, K, E)) * relu2(
-                U - (1 / 3) * torch.exp(f(T_max, K, E) / 2) * result)
+            U = torch.sqrt(V)
+            K = E / safe_T_max + (2 / 3) * torch.log((3 / 2) * E * U / (safe_T_max ** 2))
+            # Стабилизируем вычисления интегралов
+            integral_input = integral(safe_input, K, E)
+            integral_T_max = integral(safe_T_max, K, E)
+            result = integral_input - integral_T_max
+
+            # Стабилизируем экспоненту
+            exp_arg = f(safe_input, K, E) - f(safe_T_max, K, E)
+            exp_arg = torch.clamp(exp_arg, min=-100, max=100)
+            return torch.exp(exp_arg) * relu2(
+                U - (1 / 3) * torch.exp(f(safe_T_max, K, E) / 2) * result)

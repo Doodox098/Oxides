@@ -35,4 +35,6 @@ def oxides_loss(oxide_models, global_shift, reference, it, config):
         # Residual loss
         residual = residual - Value
     residual_loss = residual_weight * torch.mean(torch.abs(residual))
+    if torch.isnan(residual_loss):
+        print("NaN detected in residual loss!")
     return begin_change_loss_all, begin_loss_all, usage_loss_all, residual_loss

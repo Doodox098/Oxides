@@ -7,8 +7,40 @@ import numpy as np
 import tqdm
 
 
-def temperature_shift(delta, max_delta=30, delta_scale=1):
+def temperature_shift(delta, max_delta=50, delta_scale=1):
     return max_delta * (2 * torch.nn.functional.sigmoid(delta * delta_scale) - 1)
+
+
+def draw_simple(oxide_models, global_shift, reference, config, name):
+    import matplotlib
+    matplotlib.use('Agg')  # Set non-interactive backend
+    from matplotlib import pyplot as plt
+
+    fig = plt.figure(figsize=(12, 8), dpi=100)
+    plt.title(name, fontsize=20)
+    plt.xlabel('Температура К', fontsize=16)
+    plt.ylabel('Скорость выделения CO ppm/сек', fontsize=16)
+
+    oxygen, time = reference
+
+    with torch.no_grad():
+        if oxide_models is not None:
+            oxide_models.eval()
+            time_grid = np.linspace(1400, 2200, num=1000)
+            res = torch.zeros(1000).cpu()
+            for oxide_name, oxide in oxide_models.items():
+                ox_res = oxide(torch.tensor(time_grid), global_shift)
+                plt.plot(time_grid, ox_res.detach(), '.', label=oxide_name)
+                res += ox_res.cpu()
+            plt.plot(time_grid, res.detach(), '.')
+        plt.plot(time, oxygen, '-')
+        plt.legend(fontsize=14)
+        plt.grid(True)
+
+    fig.tight_layout()
+    fig.canvas.draw()
+
+    return fig
 
 
 def draw(oxide_models, global_shift, reference, it, config, begin_losses, usage_losses, residual_losses):
@@ -20,7 +52,7 @@ def draw(oxide_models, global_shift, reference, it, config, begin_losses, usage_
     residual_loss_ax = plt.subplot(2, 3, 3)
     residual_loss_ax.set_title('Residual Losses')
     oxides_ax = plt.subplot(2, 1, 2)
-    oxides_ax.set_title('Oxides and residual')
+    oxides_ax.set_title('Разложение на составляющие')
     logs = [f'GLOBAL SHIFT: {global_shift.item()}']
 
     oxygen, time = reference
@@ -59,9 +91,10 @@ def delete_oxides(oxide_models, global_shift, reference, it, config):
 
     for oxide_name, oxide in oxide_models.items():
         v_ref = oxygen[np.argmin(np.abs(time - oxide.get_t_max().item() - global_shift.item()))]
-        if (
-                oxide.get_v_max() < 0.3 * v_ref and it > delete_after) or oxide.get_v_max() < 0.1 * v_ref or oxide.get_v_max() < 0.05:
+        if oxide_name not in config['guaranteed_oxides'] and \
+                ((oxide.get_v_max() < 0.3 * v_ref and it > delete_after) or oxide.get_v_max() < 0.1 * v_ref or oxide.get_v_max() < 0.05):
             delete.append(oxide_name)
+            print(f'Deleting {oxide_name}: Too small')
 
     from itertools import combinations
     for oxide_1, oxide_2 in combinations(oxide_models.items(), 2):
@@ -70,17 +103,20 @@ def delete_oxides(oxide_models, global_shift, reference, it, config):
         if oxide_name_1 in delete or oxide_name_2 in delete:
             continue
         if abs(oxide_1.get_t_max().item() - oxide_2.get_t_max().item()) < 20:
-            if abs(oxide_2.get_v_max()) < abs(oxide_1.get_v_max()) or oxide_1 in config['guaranteed_oxides']:
+            if (oxide_name_2 not in config['guaranteed_oxides']
+                    and (abs(oxide_2.get_v_max()) < abs(oxide_1.get_v_max())
+                         or oxide_name_1 in config['guaranteed_oxides'])):
                 delete.append(oxide_name_2)
+                print(f'Deleting {oxide_name_2}: conflict with {oxide_name_1}')
             else:
                 delete.append(oxide_name_1)
+                print(f'Deleting {oxide_name_1}: conflict with {oxide_name_2}')
     for oxide in delete:
         oxide_models.pop(oxide)
 
 
 def train(oxide_models, global_shift_delta, reference, optimizer, config):
     import matplotlib
-    matplotlib.use('TkAgg')
     # Train configuration
     num_epoch = config['num_epoch']
     stop_after = config['stop_after']
@@ -107,6 +143,7 @@ def train(oxide_models, global_shift_delta, reference, optimizer, config):
         }
         for oxide_name in oxide_models.keys()
     }
+    timer = None
     instability_duration = 0
     try:
         for it in tqdm.tqdm(range(num_epoch)):
@@ -127,6 +164,12 @@ def train(oxide_models, global_shift_delta, reference, optimizer, config):
                                                                                        reference, it, config)
                 loss = begin_change_loss + begin_loss + usage_loss + residual_loss
                 loss.backward(retain_graph=True)
+                # Zeroing nan in gradients
+                for name, param in oxide_models.named_parameters():
+                    if param.grad.isnan().sum() > 0:
+                        param.grad.fill_(0)
+                if global_shift_delta.grad.isnan().sum() > 0:
+                    global_shift_delta.grad.fill_(0)
                 return loss
 
             optimizer.step(closure)
@@ -191,40 +234,38 @@ def train(oxide_models, global_shift_delta, reference, optimizer, config):
                 instability_duration = 0
 
             # Stop training if all oxides are oscillating
-            if instability_duration >= max_instability_duration and it > stop_after:
+            if instability_duration >= max_instability_duration and it > stop_after and timer is None:
                 print(f"Stopping training as all oxides are oscillating. Last Epoch: {it}")
-                break
+                for g in optimizer.param_groups:
+                    g['lr'] /= 10
+                timer = 100
+            # Timer used to fine-tune on last epochs
+            if timer is not None:
+                if timer == 0:
+                    break
+                timer -= 1
             delete_oxides(oxide_models, global_shift, reference, it, config)
-            if it % draw_every == 0:
-                fig, logs = draw(oxide_models, global_shift, reference, it, config, begin_losses, usage_losses,
-                                 residual_losses)
+            if draw_every and it % draw_every == 0:
+                fig = draw_simple(oxide_models, global_shift, reference, config, 'Разложение на составляющие')
 
                 fig.canvas.draw()
                 image = Image.frombytes('RGBA', fig.canvas.get_width_height(), fig.canvas.buffer_rgba()).convert('RGB')
                 frames.append(image)
-                if show_every and it % show_every == 0:
-                    print(logs)
-                    plt.show()
                 plt.close('all')
 
     except Exception as e:
         print(e)
-    # fig = plt.figure(figsize=(12, 6))
-    # fig.set_dpi(100)
-    # for oxide_name, oxide in oxide_models.items():
-    #     plt.plot(oxide_direction_info[oxide_name]["iter_since_last_change_history"][-100:], label=oxide_name)
-    # plt.ylim([-1, 30])
-    # plt.legend()
-    # plt.show()
+        global_shift = temperature_shift(global_shift_delta)
+        for oxide_name, oxide in oxide_models.items():
+            print(oxide_name)
+            print('v_max: ', oxide.get_v_max().item())
+            print('e: ', oxide.get_E().item())
+            print('t_max: ', oxide.get_t_max().item() + global_shift)
+            print('t_beg: ', oxide.get_t_beg().item() + global_shift)
     gif_duration = 10 * 1000
-    frames[0].save('train_10_sec.gif', save_all=True, append_images=frames[1:], optimize=False,
-                   duration=min(gif_duration / len(frames), 100), loop=0)
-    fig, logs = draw(oxide_models, global_shift, reference, it, config, begin_losses, usage_losses,
-                                 residual_losses)
-    plt.show()
-    for oxide_name, oxide in oxide_models.items():
-        print(f'{oxide_name}:\n'
-              f'\tT_beg_init = {oxide.b_state["init"]} T_beg_final = {oxide.get_t_beg().item()}\n'
-              f'\tT_max_init = {oxide.t_state["init"]} T_max_final = {oxide.get_t_max().item()}\n'
-              f'\tV_max_init = {oxide.v_state["init"]} V_max_final = {oxide.get_v_max().item()}\n'
-              f'\tE_init = {oxide.e_state["init"]} E_final = {oxide.get_E().item()}\n')
+    if frames:
+        frames[0].save('train_10_sec.gif', save_all=True, append_images=frames[1:] + [frames[-1]] * 20, optimize=False,
+                       duration=min(gif_duration / len(frames), 100), loop=0)
+    # fig, logs = draw(oxide_models, global_shift, reference, it, config, begin_losses, usage_losses,
+    #                              residual_losses)
+    # plt.show()
