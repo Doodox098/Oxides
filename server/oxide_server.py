@@ -5,16 +5,15 @@ from itertools import chain
 import numpy as np
 from PIL import Image as PILImage
 
-from oxid import get_tb, load_chem_data, load_oxides, get_tb_tm
-from train import temperature_shift
+from .oxid import get_tb, load_chem_data, load_oxides, get_tb_tm
+from .train import temperature_shift, train, draw_simple
 import scipy
 import torch
-from reference_read import reference_read
-from OxideModel import OxideModel
-from train import train, draw_simple
+from .reference_read import reference_read
+from .OxideModel import OxideModel
 
 
-class OxideServer: # Из этого надо сделать ViewModel
+class OxideServer:  # Из этого надо сделать ViewModel
     def __init__(self, ):
         pass
 
@@ -22,9 +21,11 @@ class OxideServer: # Из этого надо сделать ViewModel
 def get_oxide_ppm(oxide_models, global_shift_delta, reference, config):
     # oxide_groups = config['oxide_groups']
     temp_step = config['temp_step']
+
     def time_to_temp(time):
         t = reference[1]
         return oxide(t[(time * 10 / temp_step).astype(int)], global_shift)
+
     grid = np.linspace(0, 448.9, num=1000)
     # group_oxygen = dict([(key, 0) for key in oxide_groups.keys()])
     oxides_oxygen = {}
@@ -49,7 +50,7 @@ def get_oxide_ppm(oxide_models, global_shift_delta, reference, config):
     return oxides_oxygen
 
 
-def get_oxides_vf(oxides_oxygen, elements_table, oxide_params, use_density=False):
+def get_oxides_vf(oxides_oxygen, elements_table, oxide_params, metal_density):
     """
     Calculate volume fractions of oxides based on oxygen content and oxide parameters.
 
@@ -62,18 +63,13 @@ def get_oxides_vf(oxides_oxygen, elements_table, oxide_params, use_density=False
         Dictionary of volume fractions for each oxide
     """
     oxides_vf = {}
-    total_volume = 0.0
-    volume_dict = {}
 
     for oxide_name, oxygen_content in oxides_oxygen.items():
         if oxide_name not in oxide_params:
             continue
 
-        # Get oxide composition and density from params
         composition = oxide_params[oxide_name]['structure']
-        density = None
-        if use_density:
-            density = oxide_params[oxide_name]['density']  # g/cm³
+        density = oxide_params[oxide_name]['density']  # g/cm³
 
         # Calculate molecular weight of the oxide
         mol_weight = 0.0
@@ -82,20 +78,9 @@ def get_oxides_vf(oxides_oxygen, elements_table, oxide_params, use_density=False
         for element, count in composition.items():
             if element == 'O':
                 oxygen_count += count
-            else:
-                mol_weight += elements_table[element] * count
-        mol_weight += elements_table['O'] * oxygen_count
+            mol_weight += elements_table[element] * count
 
-        oxide_mass = (oxygen_content * mol_weight) / (elements_table['O'] * oxygen_count)
-
-        # Calculate volume of the oxide
-        oxide_volume = oxide_mass / density if density else oxide_mass
-        volume_dict[oxide_name] = oxide_volume
-        total_volume += oxide_volume
-
-    # Calculate volume fractions
-    if total_volume > 0:
-        oxides_vf = {oxide: volume / total_volume for oxide, volume in volume_dict.items()}
+        oxides_vf[oxide_name] = metal_density * (oxygen_content * mol_weight) / (density * elements_table['O'] * oxygen_count)
 
     return oxides_vf
 
@@ -154,24 +139,25 @@ def get_oxides_structure(oxide_params, elements_table):
         oxide_params[key]['structure'] = structure
 
 
-def main_process(reference_path, oxide_params, config, chemistry):
+def main_process(reference_path, oxides_data, config, chemistry):
     # Set matplotlib to use Agg backend (non-interactive)
     import matplotlib
     matplotlib.use('Agg')  # This must be done before importing pyplot
     from matplotlib import pyplot as plt
 
-    chem_data = load_chem_data('chem.txt')
-    oxides = load_oxides('oxid.txt')
-    with open('elements_table.json', 'r') as f:
+    chem_data = load_chem_data('server/chem.dat')
+    oxides = load_oxides('server/oxid.dat')
+    with open('server/elements_table.json', 'r') as f:
         elements_table = json.load(f)
-    oxides_tb = get_tb_tm(chem_data, oxides, chemistry, dRamp=2.0)
-    print(sorted(list(oxides_tb.items()), key=lambda x: x[1][0]))
-    config['guaranteed_oxides'] = oxide_params['guaranteed_oxides']
+    oxides_tb_tm = get_tb_tm(chem_data, oxides, chemistry, dRamp=2.0)
+    print(sorted(list(oxides_tb_tm.items()), key=lambda x: x[1][0]))
+    config['guaranteed_oxides'] = oxides_data['guaranteed_oxides']
     print(config['guaranteed_oxides'])
-    oxide_params = {key: {} for key in chain.from_iterable(oxide_params.values())}
+    oxide_params = {key: {} for key in chain.from_iterable(oxides_data.values())}
     for key in oxide_params.keys():
-        oxide_params[key]['Tb'] = oxides_tb[key][0]
-        oxide_params[key]['Tm'] = oxides_tb[key][1]
+        oxide_params[key]['Tb'] = oxides_tb_tm[key][0]
+        oxide_params[key]['Tm'] = oxides_tb_tm[key][1]
+        oxide_params[key]['density'] = oxides_data['density'][key]
     get_oxides_structure(oxide_params, elements_table)
 
     reference = reference_read(reference_path, config)
@@ -182,15 +168,17 @@ def main_process(reference_path, oxide_params, config, chemistry):
     optimizer = getattr(torch.optim, config['optim'])([x for x in oxide_models.parameters()] + [global_shift_delta],
                                                       **config['optim_params'])
 
-    fig = draw_simple(None, temperature_shift(global_shift_delta), reference[:2], config, 'Нормированая входная зависимость')
+    fig = draw_simple(None, temperature_shift(global_shift_delta), reference[:2], config,
+                      'Нормированая входная зависимость')
     fig.savefig('input.png', format='png', dpi=100)
     fig = draw_simple(oxide_models, temperature_shift(global_shift_delta), reference[:2], config, 'Первое приближение')
     fig.savefig('first_approximation.png', format='png', dpi=100)
 
     train(oxide_models, global_shift_delta, reference[:2], optimizer, config)
     oxides_oxygen = get_oxide_ppm(oxide_models, global_shift_delta, reference, config)
-    oxides_vf = get_oxides_vf(oxides_oxygen, elements_table, oxide_params)
-    fig = draw_simple(oxide_models, temperature_shift(global_shift_delta), reference[:2], config, 'Разложение на составляющие')
+    oxides_vf = get_oxides_vf(oxides_oxygen, elements_table, oxide_params, chemistry['density'])
+    fig = draw_simple(oxide_models, temperature_shift(global_shift_delta), reference[:2], config,
+                      'Разложение на составляющие')
     fig.savefig('result.png', format='png', dpi=100)
 
     from io import BytesIO
@@ -210,6 +198,17 @@ def main_process(reference_path, oxide_params, config, chemistry):
         oxides_result[oxide_name]['Vm'] = oxide.get_v_max().item()
         oxides_result[oxide_name]['E'] = oxide.get_E().item()
     return oxides_result, image
+
+
+def oxid_process(chemistry):
+    chem_data = load_chem_data('server/chem.dat')
+    oxides = load_oxides('server/oxid.dat')
+    oxides_tb_tm = get_tb_tm(chem_data, oxides, chemistry, dRamp=2.0)
+    print(sorted(list(oxides_tb_tm.items()), key=lambda x: x[1][0]))
+    oxides_result = {}
+    for oxide_name, temps in oxides_tb_tm.items():
+        oxides_result[oxide_name] = {'Tb': temps[0], 'Tm': temps[1]}
+    return oxides_result, PILImage.fromarray(np.ones((400, 600, 3), dtype=np.uint8) * 255)
 
 
 if __name__ == '__main__':

@@ -270,8 +270,8 @@ def objective(params, chem_data, oxides, goal):
 
 def main():
     # Load data
-    chem_data = load_chem_data('chem.txt')
-    oxides = load_oxides('oxid.txt')
+    chem_data = load_chem_data('chem.dat')
+    oxides = load_oxides('oxid.dat')
     oxide_params = {
       "MnSiO3": {
         "Tb": 1497,

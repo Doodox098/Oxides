@@ -1,7 +1,7 @@
 import matplotlib.pyplot as plt
 import torch
-from oxides_loss import oxides_loss
-import OxideModel
+from .oxides_loss import oxides_loss
+from .OxideModel import OxideModel
 from PIL import Image
 import numpy as np
 import tqdm
@@ -264,7 +264,7 @@ def train(oxide_models, global_shift_delta, reference, optimizer, config):
             print('t_beg: ', oxide.get_t_beg().item() + global_shift)
     gif_duration = 10 * 1000
     if frames:
-        frames[0].save('train_10_sec.gif', save_all=True, append_images=frames[1:] + [frames[-1]] * 20, optimize=False,
+        frames[0].save('train.gif', save_all=True, append_images=frames[1:] + [frames[-1]] * 20, optimize=False,
                        duration=min(gif_duration / len(frames), 100), loop=0)
     # fig, logs = draw(oxide_models, global_shift, reference, it, config, begin_losses, usage_losses,
     #                              residual_losses)

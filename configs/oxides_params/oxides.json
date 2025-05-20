@@ -1,26 +1,98 @@
 {
-  "MnO": 2,
-  "SiO2": 0,
-  "Al2O3": 0,
-  "CaO": 2,
-  "MgO": 2,
-  "Ti2O3": 1,
-  "Ti3O5": 1,
-  "TiO2": 1,
-  "TiO": 1,
-  "ZrO2": 1,
-  "Ca2SiO4": 2,
-  "CaAl4O7": 2,
-  "CaAl2O4": 2,
-  "Mg2SiO4": 2,
-  "MgSiO3": 2,
-  "Al2TiO5": 1,
-  "Al6Si2O13": 2,
-  "Al2SiO5": 2,
-  "MnAl2O4": 2,
-  "MnSiO3": 2,
-  "Mn2SiO4": 2,
-  "ZrSiO4": 1,
-  "MgAl2O4": 2,
-  "Cr2O3": 1
+    "MnO": {
+        "type": 2,
+        "density": 5.43
+    },
+    "SiO2": {
+        "type": 0,
+        "density": 2.65
+    },
+    "Al2O3": {
+        "type": 0,
+        "density": 3.95
+    },
+    "CaO": {
+        "type": 2,
+        "density": 3.34
+    },
+    "MgO": {
+        "type": 2,
+        "density": 3.58
+    },
+    "Ti2O3": {
+        "type": 1,
+        "density": 4.49
+    },
+    "Ti3O5": {
+        "type": 1,
+        "density": 4.20
+    },
+    "TiO2": {
+        "type": 1,
+        "density": 4.23
+    },
+    "TiO": {
+        "type": 1,
+        "density": 4.94
+    },
+    "ZrO2": {
+        "type": 1,
+        "density": 5.68
+    },
+    "Ca2SiO4": {
+        "type": 2,
+        "density": 3.28
+    },
+    "CaAl4O7": {
+        "type": 2,
+        "density": 2.95
+    },
+    "CaAl2O4": {
+        "type": 2,
+        "density": 2.98
+    },
+    "Mg2SiO4": {
+        "type": 2,
+        "density": 3.21
+    },
+    "MgSiO3": {
+        "type": 2,
+        "density": 3.19
+    },
+    "Al2TiO5": {
+        "type": 1,
+        "density": 3.70
+    },
+    "Al6Si2O13": {
+        "type": 2,
+        "density": 3.05
+    },
+    "Al2SiO5": {
+        "type": 2,
+        "density": 3.24
+    },
+    "MnAl2O4": {
+        "type": 2,
+        "density": 4.04
+    },
+    "MnSiO3": {
+        "type": 2,
+        "density": 3.49
+    },
+    "Mn2SiO4": {
+        "type": 2,
+        "density": 4.10
+    },
+    "ZrSiO4": {
+        "type": 1,
+        "density": 4.56
+    },
+    "MgAl2O4": {
+        "type": 2,
+        "density": 3.58
+    },
+    "Cr2O3": {
+        "type": 2,
+        "density": 5.22
+    }
 }

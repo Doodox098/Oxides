@@ -1,0 +1,300 @@
+<?xml version="1.0"?>
+
+<chem>
+
+<ptable>
+  <element name="Al" atom="27" />
+  <element name="B"  atom="10.812" />
+  <element name="C"  atom="12" />
+  <element name="Ca" atom="40.08" />
+  <element name="Cr" atom="52" />
+  <element name="Cu" atom="63.546" />
+  <element name="Fe" atom="55.85" />
+  <element name="Hf" atom="178.49" />
+  <element name="Mg" atom="24.312" />
+  <element name="Mn" atom="54.94" />
+  <element name="Ni" atom="58.69" />
+  <element name="Si" atom="28.09" />
+  <element name="Ti" atom="47.88" />
+  <element name="V" atom="50.9415" />
+  <element name="Zr" atom="91.224" />
+</ptable>
+	
+<base name="Fe">
+  <base_eps a="-560" b="-0.375" />
+
+  <e name="AlC"             b="0.091" />  
+  <e name="AlAl" a="63"     b="0.011" />
+  <e name="AlCa"            b="-0.047" />
+  <e name="AlCr"            b="0" />
+  <e name="AlMg"            b="0" />
+  <e name="AlMn"            b="0" />
+  <e name="AlNi"            b="0" />
+  <e name="AlSi"            b="0.056" />
+  <e name="AlTi"            b="0" />
+  <e name="AlV"             b="0" />
+  <e name="AlZr"            b="0" />
+
+  <e name="SiAl"           b="0.058" />
+  <e name="SiCa"           b="-0.067" />
+  <e name="SiSi" a="34.5"  b="0.089" />
+  <e name="SiMn"           b="0.002" />
+  <e name="SiNi"           b="0.005" />
+  <e name="SiTi"           b="1.23" />
+
+  <e name="TiC"  a="-221"  b="-0.072" />
+  <e name="TiTi"           b="0.042" />
+  <e name="TiSi"           b="2.1" />
+  <e name="TiMn"           b="-0.043" />
+
+  <e name="CrC"             b="-0.114" />
+  <e name="CrCr"             b="-0.0003" />
+  <e name="CrMn"             b="0.004" />
+  <e name="CrSi"             b="-0.004" />
+  <e name="CrCu"             b="0.016" />
+  <e name="CrV"             b="0.012" />
+  <e name="CrTi"             b="0.059" />
+
+  <e name="VC"             b="-0.14" />
+  <e name="VV"             b="0.015" />
+  <e name="VCr"             b="0.0119" />
+  <e name="VSi"             b="0.042" />
+  <e name="VMn"             b="0.006" />
+
+  <e name="BC"             b="0.22" />
+  <e name="BB"             b="0.038" />
+  <e name="BSi"            b="0.078" />
+
+  <epsilon name="CC"   a="7830"     b="3.55" />
+
+  <epsilon name="AlC"               b="5.29" />  
+  <epsilon name="AlAl" a="7001"     b="1.74" />
+<!--  <epsilon name="AlCa"              b="-7.48" /> -->
+  <epsilon name="AlCa" b="0" />
+  <epsilon name="AlCr"              b="5.4" />
+  <epsilon name="AlMg" b="0" />
+  <epsilon name="AlMn" b="0" />
+  <epsilon name="AlNi"              b="9.1" />
+  <epsilon name="AlSi"              b="1.14" />
+  <epsilon name="AlTi" b="0" />
+  <epsilon name="AlV"  b="0" />
+  <epsilon name="AlZr" b="0" />
+
+  <epsilon name="BAl" b="0" />
+  <epsilon name="BB"  b="2.5" />
+  <epsilon name="BC"  b="11.67" />
+  <epsilon name="BCa" b="0" />
+  <epsilon name="BCr" b="0" />
+  <epsilon name="BCu" b="0" />
+  <epsilon name="BMg" b="0" />
+  <epsilon name="BMn" b="0" />
+  <epsilon name="BNi" b="0" />
+  <epsilon name="BSi" b="9.52" />
+  <epsilon name="BTi" b="0" />
+  <epsilon name="BV"  b="0" />
+  <epsilon name="BZr" b="0" />
+
+
+  <epsilon name="CaC" b="0" />
+  <epsilon name="CaAl" b="0" />
+  <epsilon name="CaCa" b="0" />
+  <epsilon name="CaCr" b="0" />
+  <epsilon name="CaMn" b="0" />
+  <epsilon name="CaMg" b="0" />
+  <epsilon name="CaNi" b="0" />
+  <epsilon name="CaSi" b="0" />
+  <epsilon name="CaTi" b="0" />
+  <epsilon name="CaZr" b="0" />
+
+  <epsilon name="CrC"               b="-4.85" />
+  <epsilon name="CrAl" b="0" />
+  <epsilon name="CrCa" b="0" />
+  <epsilon name="CrCr"              b="0.0047" />
+  <epsilon name="CrCu"              b="4.05" />
+  <epsilon name="CrMg" b="0" />
+  <epsilon name="CrMn"              b="8.84" />
+  <epsilon name="CrNi" b="0" />
+  <epsilon name="CrSi"              b="0.034" />
+  <epsilon name="CrTi"              b="11.8" />
+  <epsilon name="CrV"               b="2.61" />
+  <epsilon name="CrZr" b="0" />
+
+  <epsilon name="CuC" b="0" />
+  <epsilon name="CuAl" b="0" />
+  <epsilon name="CuCa" b="0" />
+  <epsilon name="CuCr" b="0" />
+  <epsilon name="CuHf" b="0" />
+  <epsilon name="CuMn" b="0" />
+  <epsilon name="CuMg" b="0" />
+  <epsilon name="CuNi" b="0" />
+  <epsilon name="CuSi" b="0" />
+  <epsilon name="CuTi" b="0" />
+  <epsilon name="CuV" b="0" />
+  <epsilon name="CuZr" b="0" />
+
+  <epsilon name="FeB" b="0" />
+  <epsilon name="FeC" b="0" />
+  <epsilon name="FeAl" b="0" />
+  <epsilon name="FeCa" b="0" />
+  <epsilon name="FeCr" b="0" />
+  <epsilon name="FeHf" b="0" />
+  <epsilon name="FeMn" b="0" />
+  <epsilon name="FeMg" b="0" />
+  <epsilon name="FeNi" b="0" />
+  <epsilon name="FeSi" b="0" />
+  <epsilon name="FeTi" b="0" />
+  <epsilon name="FeV" b="0" />
+  <epsilon name="FeZr" b="0" />
+
+  <epsilon name="HfB" b="0" />
+  <epsilon name="HfC" b="0" />
+  <epsilon name="HfAl" b="0" />
+  <epsilon name="HfCa" b="0" />
+  <epsilon name="HfCr" b="0" />
+  <epsilon name="HfHf" b="0" />
+  <epsilon name="HfMn" b="0" />
+  <epsilon name="HfMg" b="0" />
+  <epsilon name="HfNi" b="0" />
+  <epsilon name="HfSi" b="0" />
+  <epsilon name="HfTi" b="0" />
+  <epsilon name="HfV" b="0" />
+  <epsilon name="HfZr" b="0" />
+
+
+  <epsilon name="MgC" b="0" />
+  <epsilon name="MgAl" b="0" />
+  <epsilon name="MgCa" b="0" />
+  <epsilon name="MgCr" b="0" />
+  <epsilon name="MgMn" b="0" />
+  <epsilon name="MgMg" b="0" />
+  <epsilon name="MgNi" b="0" />
+  <epsilon name="MgSi" b="0" />
+  <epsilon name="MgTi" b="0" />
+  <epsilon name="MgZr" b="0" />
+
+  <epsilon name="MnC" b="0" />
+  <epsilon name="MnAl" b="0" />
+  <epsilon name="MnCa" b="0" />
+  <epsilon name="MnCr" b="0" />
+  <epsilon name="MnMg" b="0" />
+  <epsilon name="MnMn" b="0" />
+  <epsilon name="MnNi" b="0" />
+  <epsilon name="MnSi" b="0" />
+  <epsilon name="MnTi" b="0" />
+  <epsilon name="MnZr" b="0" />
+
+  <epsilon name="NiC" b="0" />
+  <epsilon name="NiAl" b="0" />
+  <epsilon name="NiCa" b="0" />
+  <epsilon name="NiCr" b="0" />
+  <epsilon name="NiMn" b="0" />
+  <epsilon name="NiMg" b="0" />
+  <epsilon name="NiNi" b="0" />
+  <epsilon name="NiSi" b="0" />
+  <epsilon name="NiTi" b="0" />
+  <epsilon name="NiZr" b="0" />
+
+  <epsilon name="SiC"  a="5250"     b="8.47" />
+  <epsilon name="SiAl"              b="6.96" />
+  <epsilon name="SiAl" b="0" />
+  <epsilon name="SiCa"              b="-10.78" />
+  <epsilon name="SiCa" b="0" />
+  <epsilon name="SiCr"              b="3.2" />
+  <epsilon name="SiMg" b="0" />
+  <epsilon name="SiMn"              b="0.47" />
+  <epsilon name="SiMn" b="0" />
+  <epsilon name="SiNi"              b="1.157" />
+  <epsilon name="SiSi" a="3991"     b="10.79" />
+  <epsilon name="SiTi"              b="242.8" />
+  <epsilon name="SiTi" b="0" />
+  <epsilon name="SiZr" b="0" />
+
+  <epsilon name="TiC"  a="-10931.2" b="-2.78" />
+  <epsilon name="TiAl" b="0" />
+  <epsilon name="TiCa" b="0" />
+  <epsilon name="TiCr"              b="3.46" />
+  <epsilon name="TiMg" b="0" />
+<!--  <epsilon name="TiMn"              b="-9.71" /> -->
+  <epsilon name="TiMn" b="0" />
+  <epsilon name="TiNi"              b="2.49" />
+<!--  <epsilon name="TiSi"              b="414.4" /> -->
+  <epsilon name="TiSi" b="0" />
+  <epsilon name="TiTi"              b="8.43" />
+  <epsilon name="TiZr" b="0" />
+
+
+  <epsilon name="ZrC"               b="-11.76" />
+  <epsilon name="ZrAl" b="0" />
+  <epsilon name="ZrCa" b="0" />
+  <epsilon name="ZrCr" b="0" />
+  <epsilon name="ZrMn" b="0" />
+  <epsilon name="ZrMg" b="0" />
+  <epsilon name="ZrNi" b="0" />
+  <epsilon name="ZrSi" b="0" />
+  <epsilon name="ZrTi" b="0" />
+  <epsilon name="ZrZr" a="11.36"    b="0" />
+
+
+
+  <epsilon name="VC" b="-6.14" />
+  <epsilon name="VAl" b="0" />
+  <epsilon name="VCa" b="0" />
+  <epsilon name="VCr" b="2.62" />
+  <epsilon name="VMg" b="0" />
+  <epsilon name="VMn" b="1.37" />
+  <epsilon name="VNi" b="0" />
+  <epsilon name="VSi" b="5.36" />
+  <epsilon name="VTi" b="0" />
+  <epsilon name="VV" b="3.23" />
+  <epsilon name="VZr" b="0" />
+
+
+
+ 
+
+
+
+
+  <mc name="Al">-0.25</mc>
+  <mc name="B">0.</mc>
+  <mc name="C">0.</mc>
+  <mc name="Ca">0.24</mc>
+  <mc name="Cr">0.063</mc>
+  <mc name="Cu">-0.075</mc>
+  <mc name="Fe">0.</mc>
+  <mc name="Hf">0.</mc>
+  <mc name="Mg">0.</mc>
+  <mc name="Mn">0.03</mc>
+  <mc name="Ni">-0.055</mc>
+  <mc name="Si">-0.305</mc>
+  <mc name="Ti">0.14</mc>
+  <mc name="V">0.1</mc>
+  <mc name="Zr">0.075</mc>
+
+  <oxid>
+	<hent name="Al" h="-71100" s="-12.8" />
+	<hent name="Ti" h="-62600" s="-0.012" />
+	<hent name="Si" h="-131591" s="-15.23" />
+	<hent name="Mn" h="4084" s="0" />
+	<hent name="Ca" h="-39482" s="-84.992" />
+	<hent name="Zr" h="-80387" s="-11.24" />
+	<hent name="Fe" h="0" s="0" />
+	<hent name="Mg" h="0" s="0" />
+	<hent name="Cr" h="0" s="0" />
+  </oxid>  
+
+  <nitrid>
+    <nitr name="Al" hnitr="330000" snitr="117"   x="1" y="1" hsol=" -62800" ssol="23.8" /> 
+    <nitr name="Si" hnitr="922200" snitr="457"   x="3" y="4" hsol="-131800" ssol="17.32" /> 
+    <nitr name="Ti" hnitr="350418" snitr="100.9" x="1" y="1" hsol=" -69500" ssol="27.28" /> 
+    <nitr name="Cr" hnitr="156840" snitr=" 83.2" x="2" y="1" hsol="      0" ssol="37.66" /> 
+    <nitr name="V"  hnitr="225070" snitr=" 86"   x="1" y="1" hsol=" -42300" ssol="29.2" /> 
+    <nitr name="B"  hnitr="270175" snitr=" 96"   x="1" y="1" hsol="-73200" ssol="12.3" /> 
+    <nitr name="Zr" hnitr="376936" snitr=" 98"   x="1" y="1" hsol="   -803" ssol="34.9" /> 
+    <nitr name="Hf" hnitr="367730" snitr=" 92"   x="1" y="1" hsol="-115000" ssol="31.4" /> 
+  </nitrid>
+
+</base>
+
+
+</chem>

@@ -1,5 +1,5 @@
 import torch
-from OxideModel import OxideModel
+from .OxideModel import OxideModel
 
 
 def oxides_loss(oxide_models, global_shift, reference, it, config):
