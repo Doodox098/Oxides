@@ -19,7 +19,6 @@ class OxideServer:  # Из этого надо сделать ViewModel
 
 
 def get_oxide_ppm(oxide_models, global_shift_delta, reference, config):
-    # oxide_groups = config['oxide_groups']
     temp_step = config['temp_step']
 
     def time_to_temp(time):
@@ -27,7 +26,6 @@ def get_oxide_ppm(oxide_models, global_shift_delta, reference, config):
         return oxide(t[(time * 10 / temp_step).astype(int)], global_shift)
 
     grid = np.linspace(0, 448.9, num=1000)
-    # group_oxygen = dict([(key, 0) for key in oxide_groups.keys()])
     oxides_oxygen = {}
     for name, oxide in oxide_models.items():
         global_shift = temperature_shift(global_shift_delta)
@@ -42,10 +40,6 @@ def get_oxide_ppm(oxide_models, global_shift_delta, reference, config):
     for name, value in oxides_oxygen.items():
         oxides_oxygen[name] = value * total_oxygen / total_oxygen_integrate
         sum += oxides_oxygen[name]
-
-        # for key, value in oxide_groups.items():
-        #     if name in value:
-        #         group_oxygen[key] += oxides_oxygen[name]
 
     return oxides_oxygen
 
