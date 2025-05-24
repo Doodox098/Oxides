@@ -1,3 +1,4 @@
+import pandas as pd
 from PyQt6.QtGui import QAction
 from PyQt6.QtCore import QSize, Qt, pyqtSignal, QThread
 from PyQt6.QtWidgets import (QApplication, QWidget, QMainWindow, QPushButton,
@@ -13,6 +14,15 @@ from server.oxide_server import main_process, oxid_process
 from windows.AlgoWindow import AlgoWindow
 from windows.ChemWindow import ChemWindow
 from windows.OxidesWindow import OxidesWindow
+
+class XlsxSaveThread(QThread):
+    def __init__(self, object, name):
+        super(XlsxSaveThread, self).__init__()
+        self.object = object
+        self.name = name
+
+    def run(self):
+        self.object.transpose().to_excel(self.name)
 
 class AnalysisThread(QThread):
     result_ready = pyqtSignal(object, object, name="result_ready")
@@ -302,24 +312,32 @@ class MainWindow(QMainWindow):
         table_layout = QVBoxLayout()
 
         oxygen_table = QTableWidget()
+
+        self.data_to_export = pd.DataFrame({key: value for key, value in sorted(oxides_results.items(), key=lambda x: x[1]['Tb'])})
         # Определяем какой алгоритм вызывался
         count_columns = len(list(oxides_results.values())[0])
         if count_columns == 6:  # Выводим результат разделения
             oxygen_table.setColumnCount(5)
             oxygen_table.setHorizontalHeaderLabels(["Oxide", "Oxygen (ppm)", "Vol. fraction", "Tb (K)", "Tm (K)"])
             oxygen_table.setRowCount(len(oxides_results))
-            # Сортируем результаты по Tb
             oxides_results = {key: value for key, value in sorted(oxides_results.items(), key=lambda x: x[1]['Tb'])}
 
             for row, (oxide, value) in enumerate(oxides_results.items()):
-                oxygen_table.setItem(row, 0, QTableWidgetItem(oxide))
-                oxygen_table.setItem(row, 1, QTableWidgetItem(f"{value['ppm'] * 10000:.5f}"))
-                oxygen_table.setItem(row, 2, QTableWidgetItem(f"{value['vf']:.5f}"))
-                oxygen_table.setItem(row, 3, QTableWidgetItem(f"{value['Tb']:.1f}"))
-                oxygen_table.setItem(row, 4, QTableWidgetItem(f"{value['Tm']:.1f}"))
+                for col, (col_key, col_value) in enumerate([
+                    ("oxide", oxide),
+                    ("ppm", f"{value['ppm'] * 10000:.5f}"),
+                    ("vf", f"{value['vf']:.5f}"),
+                    ("Tb", f"{value['Tb']:.1f}"),
+                    ("Tm", f"{value['Tm']:.1f}")
+                ]):
+                    item = QTableWidgetItem(col_value)
+                    item.setFlags(Qt.ItemFlag.ItemIsEnabled | Qt.ItemFlag.ItemIsSelectable)  # Read-only
+                    oxygen_table.setItem(row, col, item)
 
             for col in range(5):
                 oxygen_table.setColumnWidth(col, 20)
+            # Export to default file
+            self.save_thread = XlsxSaveThread(self.data_to_export, 'analysis_results.xlsx').start()
         elif count_columns == 2:  # Выводим теоретические Tb
             oxygen_table.setColumnCount(3)
             oxygen_table.setHorizontalHeaderLabels(["Oxide", "Tb (K)", "Tm (K)"])
@@ -329,23 +347,32 @@ class MainWindow(QMainWindow):
             oxides_results = {key: value for key, value in sorted(oxides_results.items(), key=lambda x: x[1]['Tb'])}
 
             for row, (oxide, value) in enumerate(oxides_results.items()):
-                oxygen_table.setItem(row, 0, QTableWidgetItem(oxide))
-                oxygen_table.setItem(row, 1, QTableWidgetItem(f"{value['Tb']:.2f}"))
-                oxygen_table.setItem(row, 2, QTableWidgetItem(f"{value['Tm']:.2f}"))
+                for col, (col_key, col_value) in enumerate([
+                    ("oxide", oxide),
+                    ("Tb", f"{value['Tb']:.2f}"),
+                    ("Tm", f"{value['Tm']:.2f}")
+                ]):
+                    item = QTableWidgetItem(col_value)
+                    item.setFlags(Qt.ItemFlag.ItemIsEnabled | Qt.ItemFlag.ItemIsSelectable)  # Read-only
+                    oxygen_table.setItem(row, col, item)
 
             for col in range(3):
                 oxygen_table.setColumnWidth(col, 20)
-
+            # Export to default file
+            self.save_thread = XlsxSaveThread(self.data_to_export, 'oxid_results.xlsx')
         oxygen_table.resizeColumnsToContents()
-        # oxygen_table.horizontalHeader().setStretchLastSection(True)
 
         # Add title above the table
         table_title = QLabel("Oxygen Content Analysis")
         table_title.setAlignment(Qt.AlignmentFlag.AlignCenter)
         table_title.setStyleSheet("font-weight: bold; font-size: 14px;")
+        # Add export button
+        export_button = QPushButton("Export data...")
+        export_button.clicked.connect(self.export_data)
 
         table_layout.addWidget(table_title)
         table_layout.addWidget(oxygen_table)
+        table_layout.addWidget(export_button)
         table_container.setLayout(table_layout)
         splitter.addWidget(table_container)
 
@@ -362,8 +389,34 @@ class MainWindow(QMainWindow):
 
         self.central_layout.addWidget(self.results_widget)
         self.reset_image_zoom()
+        self.save_thread.start()
 
-    # Keep the same zoom methods as before
+    def export_data(self):
+        file_path, _ = QFileDialog.getSaveFileName(
+            self,
+            "Save parameters",
+            "",
+            "Excel Files (*.xlsx);;All Files (*)",
+            options=QFileDialog.Option.DontUseNativeDialog
+        )
+        if not file_path:
+            return
+        try:
+            self.data_to_export.transpose().to_excel(file_path)
+            QMessageBox.information(
+                self,
+                "Data saved",
+                f"Data successfully saved to:\n{file_path}",
+                QMessageBox.StandardButton.Ok
+            )
+        except Exception as e:
+            QMessageBox.critical(
+                self,
+                "Error",
+                f"Unable to save file:\n{str(e)}",
+                QMessageBox.StandardButton.Ok
+            )
+
     def zoom_in_image(self):
         if hasattr(self, 'image_label') and hasattr(self, 'original_pixmap'):
             current_size = self.image_label.pixmap().size()

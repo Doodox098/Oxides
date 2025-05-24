@@ -21,9 +21,9 @@ class OxideServer:  # Из этого надо сделать ViewModel
 def get_oxide_ppm(oxide_models, global_shift_delta, reference, config):
     temp_step = config['temp_step']
 
-    def time_to_temp(time):
+    def time_to_temp(time: np.array):
         t = reference[1]
-        return oxide(t[(time * 10 / temp_step).astype(int)], global_shift)
+        return oxide(t[(time * 10 / temp_step).astype(int).clip(0, len(t) - 1)], global_shift)
 
     grid = np.linspace(0, 448.9, num=1000)
     oxides_oxygen = {}
@@ -147,7 +147,7 @@ def main_process(reference_path, oxides_data, config, chemistry):
     print(sorted(list(oxides_tb_tm.items()), key=lambda x: x[1][0]))
     config['guaranteed_oxides'] = oxides_data['guaranteed_oxides']
     print(config['guaranteed_oxides'])
-    oxide_params = {key: {} for key in chain.from_iterable(oxides_data.values())}
+    oxide_params = {key: {} for key in chain(oxides_data['guaranteed_oxides'], oxides_data['other_oxides'])}
     for key in oxide_params.keys():
         oxide_params[key]['Tb'] = oxides_tb_tm[key][0]
         oxide_params[key]['Tm'] = oxides_tb_tm[key][1]

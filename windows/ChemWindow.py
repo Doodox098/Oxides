@@ -11,7 +11,7 @@ from .BaseParametersWindow import BaseParametersWindow
 
 class ChemWindow(BaseParametersWindow):
     def __init__(self, *args, **kwargs):
-        super().__init__("Chemical parameters", "configs/chemistry_params/esh-15.json", *args, **kwargs)
+        super().__init__("Chemical parameters", "configs/chemistry_params/chemistry.json", *args, **kwargs)
         self.new_element_name = None
         self.new_element_value = None
 
