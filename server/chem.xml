@@ -1,75 +1,13 @@
 <?xml version="1.0"?>
 
 <chem>
-
-<ptable>
-  <element name="Al" atom="27" />
-  <element name="B"  atom="10.812" />
-  <element name="C"  atom="12" />
-  <element name="Ca" atom="40.08" />
-  <element name="Cr" atom="52" />
-  <element name="Cu" atom="63.546" />
-  <element name="Fe" atom="55.85" />
-  <element name="Hf" atom="178.49" />
-  <element name="Mg" atom="24.312" />
-  <element name="Mn" atom="54.94" />
-  <element name="Ni" atom="58.69" />
-  <element name="Si" atom="28.09" />
-  <element name="Ti" atom="47.88" />
-  <element name="V" atom="50.9415" />
-  <element name="Zr" atom="91.224" />
-</ptable>
-	
 <base name="Fe">
   <base_eps a="-560" b="-0.375" />
 
-  <e name="AlC"             b="0.091" />  
-  <e name="AlAl" a="63"     b="0.011" />
-  <e name="AlCa"            b="-0.047" />
-  <e name="AlCr"            b="0" />
-  <e name="AlMg"            b="0" />
-  <e name="AlMn"            b="0" />
-  <e name="AlNi"            b="0" />
-  <e name="AlSi"            b="0.056" />
-  <e name="AlTi"            b="0" />
-  <e name="AlV"             b="0" />
-  <e name="AlZr"            b="0" />
-
-  <e name="SiAl"           b="0.058" />
-  <e name="SiCa"           b="-0.067" />
-  <e name="SiSi" a="34.5"  b="0.089" />
-  <e name="SiMn"           b="0.002" />
-  <e name="SiNi"           b="0.005" />
-  <e name="SiTi"           b="1.23" />
-
-  <e name="TiC"  a="-221"  b="-0.072" />
-  <e name="TiTi"           b="0.042" />
-  <e name="TiSi"           b="2.1" />
-  <e name="TiMn"           b="-0.043" />
-
-  <e name="CrC"             b="-0.114" />
-  <e name="CrCr"             b="-0.0003" />
-  <e name="CrMn"             b="0.004" />
-  <e name="CrSi"             b="-0.004" />
-  <e name="CrCu"             b="0.016" />
-  <e name="CrV"             b="0.012" />
-  <e name="CrTi"             b="0.059" />
-
-  <e name="VC"             b="-0.14" />
-  <e name="VV"             b="0.015" />
-  <e name="VCr"             b="0.0119" />
-  <e name="VSi"             b="0.042" />
-  <e name="VMn"             b="0.006" />
-
-  <e name="BC"             b="0.22" />
-  <e name="BB"             b="0.038" />
-  <e name="BSi"            b="0.078" />
-
   <epsilon name="CC"   a="7830"     b="3.55" />
 
-  <epsilon name="AlC"               b="5.29" />  
+  <epsilon name="AlC"               b="5.29" />
   <epsilon name="AlAl" a="7001"     b="1.74" />
-<!--  <epsilon name="AlCa"              b="-7.48" /> -->
   <epsilon name="AlCa" b="0" />
   <epsilon name="AlCr"              b="5.4" />
   <epsilon name="AlMg" b="0" />
@@ -214,10 +152,8 @@
   <epsilon name="TiCa" b="0" />
   <epsilon name="TiCr"              b="3.46" />
   <epsilon name="TiMg" b="0" />
-<!--  <epsilon name="TiMn"              b="-9.71" /> -->
   <epsilon name="TiMn" b="0" />
   <epsilon name="TiNi"              b="2.49" />
-<!--  <epsilon name="TiSi"              b="414.4" /> -->
   <epsilon name="TiSi" b="0" />
   <epsilon name="TiTi"              b="8.43" />
   <epsilon name="TiZr" b="0" />
@@ -234,8 +170,6 @@
   <epsilon name="ZrTi" b="0" />
   <epsilon name="ZrZr" a="11.36"    b="0" />
 
-
-
   <epsilon name="VC" b="-6.14" />
   <epsilon name="VAl" b="0" />
   <epsilon name="VCa" b="0" />
@@ -247,13 +181,6 @@
   <epsilon name="VTi" b="0" />
   <epsilon name="VV" b="3.23" />
   <epsilon name="VZr" b="0" />
-
-
-
- 
-
-
-
 
   <mc name="Al">-0.25</mc>
   <mc name="B">0.</mc>
@@ -281,18 +208,7 @@
 	<hent name="Fe" h="0" s="0" />
 	<hent name="Mg" h="0" s="0" />
 	<hent name="Cr" h="0" s="0" />
-  </oxid>  
-
-  <nitrid>
-    <nitr name="Al" hnitr="330000" snitr="117"   x="1" y="1" hsol=" -62800" ssol="23.8" /> 
-    <nitr name="Si" hnitr="922200" snitr="457"   x="3" y="4" hsol="-131800" ssol="17.32" /> 
-    <nitr name="Ti" hnitr="350418" snitr="100.9" x="1" y="1" hsol=" -69500" ssol="27.28" /> 
-    <nitr name="Cr" hnitr="156840" snitr=" 83.2" x="2" y="1" hsol="      0" ssol="37.66" /> 
-    <nitr name="V"  hnitr="225070" snitr=" 86"   x="1" y="1" hsol=" -42300" ssol="29.2" /> 
-    <nitr name="B"  hnitr="270175" snitr=" 96"   x="1" y="1" hsol="-73200" ssol="12.3" /> 
-    <nitr name="Zr" hnitr="376936" snitr=" 98"   x="1" y="1" hsol="   -803" ssol="34.9" /> 
-    <nitr name="Hf" hnitr="367730" snitr=" 92"   x="1" y="1" hsol="-115000" ssol="31.4" /> 
-  </nitrid>
+  </oxid>
 
 </base>
 

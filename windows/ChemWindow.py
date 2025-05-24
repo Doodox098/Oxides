@@ -1,5 +1,6 @@
 import json
 import os
+from copy import deepcopy
 from pathlib import Path
 
 from PyQt6.QtWidgets import QVBoxLayout, QFormLayout, QGroupBox, QHBoxLayout, QLineEdit, QPushButton, QLabel, \
@@ -20,6 +21,8 @@ class ChemWindow(BaseParametersWindow):
         main_layout = QVBoxLayout()
         self.form_layout = QFormLayout()
         main_layout.addLayout(self.form_layout)
+
+        self.temp_params = deepcopy(self.default_params)
 
         # Add controls for new element
         add_group = QGroupBox("Add New Element")
@@ -70,15 +73,15 @@ class ChemWindow(BaseParametersWindow):
     def update_elements_form(self):
         # Update changes of parameters
         for element_name in list(self.params.keys()):
-            self.default_params[element_name] = self.params[element_name].text().strip()
+            self.temp_params[element_name] = self.params[element_name].text().strip()
 
         # Clear existing elements
         for i in reversed(range(self.form_layout.rowCount())):
             self.form_layout.removeRow(i)
 
         # Add current elements with delete buttons
-        for element_name in filter(lambda x: x != 'density', list(self.default_params.keys())):
-            value_edit = QLineEdit(str(self.default_params[element_name]))
+        for element_name in filter(lambda x: x != 'density', list(self.temp_params.keys())):
+            value_edit = QLineEdit(str(self.temp_params[element_name]))
             self.params[element_name] = value_edit
 
             delete_button = QPushButton("×")
@@ -90,7 +93,7 @@ class ChemWindow(BaseParametersWindow):
             hbox.addWidget(delete_button)
 
             self.form_layout.addRow(QLabel(element_name), hbox)
-        self.density.setText(str(self.default_params['density']))
+        self.density.setText(str(self.temp_params['density']))
 
     def add_element(self):
         element_name = self.new_element_name_edit.text().strip()
@@ -106,11 +109,11 @@ class ChemWindow(BaseParametersWindow):
             QMessageBox.warning(self, "Warning", "Please enter a valid number")
             return
 
-        if element_name in self.default_params:
+        if element_name in self.temp_params:
             QMessageBox.warning(self, "Warning", f"Element '{element_name}' already exists")
             return
 
-        self.default_params[element_name] = value
+        self.temp_params[element_name] = value
         self.new_element_name_edit.clear()
         self.new_element_value_edit.clear()
         self.update_elements_form()
@@ -124,7 +127,7 @@ class ChemWindow(BaseParametersWindow):
         )
 
         if reply == QMessageBox.StandardButton.Yes:
-            del self.default_params[element_name]
+            del self.temp_params[element_name]
             if element_name in self.params:
                 del self.params[element_name]
             self.update_elements_form()
@@ -136,11 +139,11 @@ class ChemWindow(BaseParametersWindow):
                 content = json.load(file)
 
             # Clear current elements
-            self.default_params.clear()
+            self.temp_params.clear()
             self.params.clear()
 
             # Load new elements
-            self.default_params.update(content)
+            self.temp_params.update(content)
 
             # Update form
             self.update_elements_form()
@@ -166,6 +169,7 @@ class ChemWindow(BaseParametersWindow):
 
     def apply_params(self):
         chemistry = self.collect_parameters()
+        self.default_params = self.temp_params
         self.params_changed.emit(chemistry)
         self.close()
 

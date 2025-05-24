@@ -114,7 +114,7 @@ def load_oxides(oxide_file):
     return oxides
 
 
-def count_oxide_func(Temp, ox, ch_data, base, comps, Pco):
+def calculate_gibbs_energy(Temp, ox, ch_data, base, comps, Pco):
     kKTemp = Temp / 1000.0  # Convert to kK
 
     # Get epsilon parameters for base components
@@ -194,9 +194,9 @@ def calc_oxide_tb(T1, T2, ox, ch_data, base, comps, Pco, eps=1.0):
     t2 = T2
 
     while t2 - t1 > eps:
-        G1 = count_oxide_func(t1, ox, ch_data, base, comps, Pco)
-        G2 = count_oxide_func(t2, ox, ch_data, base, comps, Pco)
-        G = count_oxide_func((t2 + t1) / 2.0, ox, ch_data, base, comps, Pco)
+        G1 = calculate_gibbs_energy(t1, ox, ch_data, base, comps, Pco)
+        G2 = calculate_gibbs_energy(t2, ox, ch_data, base, comps, Pco)
+        G = calculate_gibbs_energy((t2 + t1) / 2.0, ox, ch_data, base, comps, Pco)
 
         if G1 * G < 0:
             t2 = (t2 + t1) / 2.0

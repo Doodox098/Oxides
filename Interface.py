@@ -82,7 +82,7 @@ class MainWindow(QMainWindow):
             'other_oxides': [name for name in self.oxides_window.default_params.keys()
                              if self.oxides_window.default_params[name]['type'] == 2],
             'density': {name: self.oxides_window.default_params[name]['density']
-                       for name in self.oxides_window.default_params.keys()}
+                        for name in self.oxides_window.default_params.keys()}
         }
         self.chemistry = self.chem_window.default_params
 
@@ -125,7 +125,7 @@ class MainWindow(QMainWindow):
         toolbar.addAction(self.run_action)
 
         # Run oxid action
-        self.run_oxid_action = QAction("Run oxid", self)
+        self.run_oxid_action = QAction("Run OxID", self)
         self.run_oxid_action.setToolTip("Run only temperatures calculation")
         self.run_oxid_action.triggered.connect(self.run_oxid)
         toolbar.addAction(self.run_oxid_action)
@@ -140,14 +140,17 @@ class MainWindow(QMainWindow):
         self.setCentralWidget(self.central_widget)
 
     def open_algo_window(self):
+        self.algo_window.init_ui()
         self.algo_window.setWindowModality(Qt.WindowModality.ApplicationModal)
         self.algo_window.show()
 
     def change_oxides(self):
+        self.oxides_window.init_ui()
         self.oxides_window.setWindowModality(Qt.WindowModality.ApplicationModal)
         self.oxides_window.show()
 
     def change_chemistry(self):
+        self.chem_window.init_ui()
         self.chem_window.setWindowModality(Qt.WindowModality.ApplicationModal)
         self.chem_window.show()
 
@@ -303,14 +306,14 @@ class MainWindow(QMainWindow):
         count_columns = len(list(oxides_results.values())[0])
         if count_columns == 6:  # Выводим результат разделения
             oxygen_table.setColumnCount(5)
-            oxygen_table.setHorizontalHeaderLabels(["Oxide", "Oxygen (%)", "Vol. fraction", "Tb (K)", "Tm (K)"])
+            oxygen_table.setHorizontalHeaderLabels(["Oxide", "Oxygen (ppm)", "Vol. fraction", "Tb (K)", "Tm (K)"])
             oxygen_table.setRowCount(len(oxides_results))
             # Сортируем результаты по Tb
             oxides_results = {key: value for key, value in sorted(oxides_results.items(), key=lambda x: x[1]['Tb'])}
 
             for row, (oxide, value) in enumerate(oxides_results.items()):
                 oxygen_table.setItem(row, 0, QTableWidgetItem(oxide))
-                oxygen_table.setItem(row, 1, QTableWidgetItem(f"{value['ppm']:.5f}"))
+                oxygen_table.setItem(row, 1, QTableWidgetItem(f"{value['ppm'] * 10000:.5f}"))
                 oxygen_table.setItem(row, 2, QTableWidgetItem(f"{value['vf']:.5f}"))
                 oxygen_table.setItem(row, 3, QTableWidgetItem(f"{value['Tb']:.1f}"))
                 oxygen_table.setItem(row, 4, QTableWidgetItem(f"{value['Tm']:.1f}"))

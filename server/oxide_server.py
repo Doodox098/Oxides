@@ -139,7 +139,7 @@ def main_process(reference_path, oxides_data, config, chemistry):
     matplotlib.use('Agg')  # This must be done before importing pyplot
     from matplotlib import pyplot as plt
 
-    chem_data = load_chem_data('server/chem.dat')
+    chem_data = load_chem_data('server/chem.xml')
     oxides = load_oxides('server/oxid.dat')
     with open('server/elements_table.json', 'r') as f:
         elements_table = json.load(f)
@@ -195,7 +195,7 @@ def main_process(reference_path, oxides_data, config, chemistry):
 
 
 def oxid_process(chemistry):
-    chem_data = load_chem_data('server/chem.dat')
+    chem_data = load_chem_data('server/chem.xml')
     oxides = load_oxides('server/oxid.dat')
     oxides_tb_tm = get_tb_tm(chem_data, oxides, chemistry, dRamp=2.0)
     print(sorted(list(oxides_tb_tm.items()), key=lambda x: x[1][0]))

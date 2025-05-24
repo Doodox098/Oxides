@@ -1,3 +1,5 @@
+from copy import deepcopy
+
 from PyQt6.QtWidgets import QVBoxLayout, QHBoxLayout, QGroupBox, QFormLayout, QLineEdit, QLabel, QPushButton
 
 from .BaseParametersWindow import BaseParametersWindow
@@ -91,5 +93,6 @@ class AlgoWindow(BaseParametersWindow):
 
     def apply_params(self):
         params = self.collect_parameters()
+        self.default_params.update(params)
         self.params_changed.emit(params)
         self.close()
