@@ -3,6 +3,7 @@ import json
 from itertools import chain
 
 import numpy as np
+import pandas as pd
 from PIL import Image as PILImage
 
 from .oxid import get_tb, load_chem_data, load_oxides, get_tb_tm
@@ -133,11 +134,22 @@ def get_oxides_structure(oxide_params, elements_table):
         oxide_params[key]['structure'] = structure
 
 
-def main_process(reference_path, oxides_data, config, chemistry):
+def main_process(reference_path, oxides_data, config, chemistry, save_paths=None):
     # Set matplotlib to use Agg backend (non-interactive)
     import matplotlib
     matplotlib.use('Agg')  # This must be done before importing pyplot
     from matplotlib import pyplot as plt
+
+    reference_save_path = 'input.png'
+    first_approximation_save_path = 'first_approximation.png'
+    result_save_path = 'result.png'
+    config['gif_name'] = 'train.gif'
+
+    if save_paths is not None:
+        reference_save_path = save_paths['reference_save_path']
+        first_approximation_save_path = save_paths['first_approximation_save_path']
+        result_save_path = save_paths['result_save_path']
+        config['gif_name'] = save_paths['gif_name']
 
     chem_data = load_chem_data('server/chem.xml')
     oxides = load_oxides('server/oxid.dat')
@@ -164,16 +176,16 @@ def main_process(reference_path, oxides_data, config, chemistry):
 
     fig = draw_simple(None, temperature_shift(global_shift_delta), reference[:2], config,
                       'Нормированая входная зависимость')
-    fig.savefig('input.png', format='png', dpi=100)
+    fig.savefig(reference_save_path, format='png', dpi=100)
     fig = draw_simple(oxide_models, temperature_shift(global_shift_delta), reference[:2], config, 'Первое приближение')
-    fig.savefig('first_approximation.png', format='png', dpi=100)
+    fig.savefig(first_approximation_save_path, format='png', dpi=100)
 
     train(oxide_models, global_shift_delta, reference[:2], optimizer, config)
     oxides_oxygen = get_oxide_ppm(oxide_models, global_shift_delta, reference, config)
     oxides_vf = get_oxides_vf(oxides_oxygen, elements_table, oxide_params, chemistry['density'])
     fig = draw_simple(oxide_models, temperature_shift(global_shift_delta), reference[:2], config,
                       'Разложение на составляющие')
-    fig.savefig('result.png', format='png', dpi=100)
+    fig.savefig(result_save_path, format='png', dpi=100)
 
     from io import BytesIO
     buf = BytesIO()
@@ -192,6 +204,22 @@ def main_process(reference_path, oxides_data, config, chemistry):
         oxides_result[oxide_name]['Vm'] = oxide.get_v_max().item()
         oxides_result[oxide_name]['E'] = oxide.get_E().item()
     return oxides_result, image
+
+def process_multiple_files(reference_paths, oxides_data, config, chemistry):
+    results = {}
+    images = {}
+    for reference_path in reference_paths:
+        save_paths = {
+            'reference_save_path': f'{reference_path}_input.png',
+            'first_approximation_save_path': f'{reference_path}_fa.png',
+            'result_save_path': f'{reference_path}_result.png',
+            'gif_name': f'{reference_path}_train.gif',
+        }
+        oxides_result, image = main_process(reference_path, oxides_data, config, chemistry)
+        results[reference_path] = oxides_result
+        images[reference_path] = image
+
+    return results, images
 
 
 def oxid_process(chemistry):

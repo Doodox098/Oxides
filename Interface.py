@@ -1,35 +1,41 @@
+from itertools import chain
+from pathlib import Path
+
+import numpy as np
 import pandas as pd
 from PyQt6.QtGui import QAction
 from PyQt6.QtCore import QSize, Qt, pyqtSignal, QThread
 from PyQt6.QtWidgets import (QApplication, QWidget, QMainWindow, QPushButton,
                              QLabel, QToolBar, QFileDialog,
                              QMessageBox, QHBoxLayout, QVBoxLayout,
-                             QScrollArea, QSplitter)
+                             QScrollArea, QSplitter, QTabWidget)
 from PyQt6.QtWidgets import QTableWidget, QTableWidgetItem
 from PyQt6.QtGui import QPixmap
 import sys
 import os
 
-from server.oxide_server import main_process, oxid_process
+from server.oxide_server import main_process, oxid_process, process_multiple_files
 from windows.AlgoWindow import AlgoWindow
 from windows.ChemWindow import ChemWindow
 from windows.OxidesWindow import OxidesWindow
 
 class XlsxSaveThread(QThread):
-    def __init__(self, object, name):
+    def __init__(self, data):
         super(XlsxSaveThread, self).__init__()
-        self.object = object
-        self.name = name
+        self.data = data
 
     def run(self):
-        self.object.transpose().to_excel(self.name)
+        for obj, name in self.data:
+            if isinstance(obj, dict):
+                obj = pd.DataFrame(obj)
+            obj.transpose().to_excel(name)
 
 class AnalysisThread(QThread):
-    result_ready = pyqtSignal(object, object, name="result_ready")
+    result_ready = pyqtSignal(object, object, object, name="result_ready")
 
-    def __init__(self, file_path, oxides_params, params, chemistry, mode='oxsep'):  # mode = 'oxid' / 'oxsep'
+    def __init__(self, file_paths, oxides_params, params, chemistry, mode='oxsep'):  # mode = 'oxid' / 'oxsep'
         super().__init__()
-        self.file_path = file_path
+        self.file_paths = file_paths
         self.oxides_params = oxides_params
         self.params = params
         self.chemistry = chemistry
@@ -48,9 +54,9 @@ class AnalysisThread(QThread):
             oxides_result, data = oxid_process(
                 self.chemistry
             )
-            self.result_ready.emit(oxides_result, data)
+            self.result_ready.emit(oxides_result, data, 'oxid')
         except Exception as e:
-            self.result_ready.emit(None, str(e))
+            self.result_ready.emit(None, str(e), 'oxid')
 
     def run_oxsep(self):
         self.params.setdefault("model", "first")
@@ -60,16 +66,25 @@ class AnalysisThread(QThread):
             "lr": 0.001,
             "momentum": 0.7
         })
+        type = 'one_file_oxsep' if len(self.file_paths) == 1 else 'multiple_files_oxsep'
         try:
-            oxides_result, image = main_process(
-                self.file_path,
-                self.oxides_params,
-                self.params,
-                self.chemistry
-            )
-            self.result_ready.emit(oxides_result, image)
+            if type == 'one_file_oxsep':
+                oxides_result, image = main_process(
+                    self.file_paths[0],
+                    self.oxides_params,
+                    self.params,
+                    self.chemistry
+                )
+            else:
+                oxides_result, image = process_multiple_files(
+                    self.file_paths,
+                    self.oxides_params,
+                    self.params,
+                    self.chemistry
+                )
+            self.result_ready.emit(oxides_result, image, type)
         except Exception as e:
-            self.result_ready.emit(None, str(e))
+            self.result_ready.emit(None, str(e), type)
 
 
 class MainWindow(QMainWindow):
@@ -174,18 +189,26 @@ class MainWindow(QMainWindow):
         self.chemistry.update(params)
 
     def choose_file(self):
-        file_path, _ = QFileDialog.getOpenFileName(
+        """Handle selection of one or multiple files"""
+        file_paths, _ = QFileDialog.getOpenFileNames(
             self,
-            "Choose FGA file",
+            "Choose FGA file(s)",
             "",
             "CSV Files (*.csv);;All Files (*)",
             options=QFileDialog.Option.DontUseNativeDialog
         )
 
-        if file_path:
-            self.file_path = file_path
-            file_name = os.path.basename(file_path)
-            self.statusBar().showMessage(f"Selected file: {file_name}")
+        if file_paths:
+            self.file_paths = file_paths  # Store list of paths
+            file_names = [os.path.basename(path) for path in file_paths]
+
+            # Update status bar message
+            if len(file_names) == 1:
+                self.statusBar().showMessage(f"Selected file: {os.path.basename(file_paths[0])}")
+            else:
+                self.statusBar().showMessage(f"Selected {len(file_names)} files")
+
+            self.file_path = file_paths[0]
 
     def run_oxid(self):
         self.run_oxid_action.setDisabled(True)
@@ -232,7 +255,7 @@ class MainWindow(QMainWindow):
         print(f"\nFile path: {self.file_path}")
 
         self.analysis_thread = AnalysisThread(
-            self.file_path,
+            self.file_paths,
             self.oxides_params,
             self.params,
             self.chemistry,
@@ -241,7 +264,7 @@ class MainWindow(QMainWindow):
         self.analysis_thread.result_ready.connect(self.display_results)
         self.analysis_thread.start()
 
-    def display_results(self, oxides_results, data):
+    def display_results(self, oxides_results, data, type: str):
         self.run_action.setEnabled(True)
         self.run_oxid_action.setEnabled(True)
         if oxides_results is None:
@@ -260,125 +283,217 @@ class MainWindow(QMainWindow):
 
         # Create a new widget to hold all results
         self.results_widget = QWidget()
-        main_layout = QHBoxLayout()  # Changed to horizontal layout
-
-        # Create splitter for resizable panes
+        main_layout = QHBoxLayout()
         splitter = QSplitter(Qt.Orientation.Horizontal)
 
         # Left side: Image with zoom capabilities
         if data:
-            image_container = QWidget()
-            image_layout = QVBoxLayout()
-
-            # Convert PIL Image to QPixmap
-            from PIL.ImageQt import ImageQt
-            self.original_pixmap = QPixmap.fromImage(ImageQt(data))
-
-            # Create scroll area for zoomable image
-            self.image_scroll = QScrollArea()
-            self.image_scroll.setWidgetResizable(True)
-
-            self.image_label = QLabel()
-            self.image_label.setPixmap(self.original_pixmap.scaled(
-                self.image_scroll.size(),
-                Qt.AspectRatioMode.KeepAspectRatio,
-                Qt.TransformationMode.SmoothTransformation
-            ))
-            self.image_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-
-            self.image_scroll.setWidget(self.image_label)
-
-            # Add zoom controls
-            zoom_controls = QHBoxLayout()
-            zoom_in_btn = QPushButton("Zoom In (+)")
-            zoom_out_btn = QPushButton("Zoom Out (-)")
-            reset_zoom_btn = QPushButton("Reset Zoom")
-
-            zoom_in_btn.clicked.connect(self.zoom_in_image)
-            zoom_out_btn.clicked.connect(self.zoom_out_image)
-            reset_zoom_btn.clicked.connect(self.reset_image_zoom)
-
-            zoom_controls.addWidget(zoom_in_btn)
-            zoom_controls.addWidget(zoom_out_btn)
-            zoom_controls.addWidget(reset_zoom_btn)
-
-            image_layout.addWidget(self.image_scroll)
-            image_layout.addLayout(zoom_controls)
-            image_container.setLayout(image_layout)
+            image_container = self.make_image(data)
             splitter.addWidget(image_container)
 
-        # Right side: Oxygen content table
+        # Right side: Oxygen content table(s)
         table_container = QWidget()
         table_layout = QVBoxLayout()
 
-        oxygen_table = QTableWidget()
+        # Store export data with context
+        self.export_data_context = {
+            'type': type,
+            'all_data': {},
+            'aggregated_data': None
+        }
 
-        self.data_to_export = pd.DataFrame({key: value for key, value in sorted(oxides_results.items(), key=lambda x: x[1]['Tb'])})
-        # Определяем какой алгоритм вызывался
-        count_columns = len(list(oxides_results.values())[0])
-        if count_columns == 6:  # Выводим результат разделения
-            oxygen_table.setColumnCount(5)
-            oxygen_table.setHorizontalHeaderLabels(["Oxide", "Oxygen (ppm)", "Vol. fraction", "Tb (K)", "Tm (K)"])
-            oxygen_table.setRowCount(len(oxides_results))
-            oxides_results = {key: value for key, value in sorted(oxides_results.items(), key=lambda x: x[1]['Tb'])}
+        if type == 'multiple_files_oxsep':
+            # Create a tab widget for multiple files
+            tab_widget = QTabWidget()
 
-            for row, (oxide, value) in enumerate(oxides_results.items()):
-                for col, (col_key, col_value) in enumerate([
-                    ("oxide", oxide),
-                    ("ppm", f"{value['ppm'] * 10000:.5f}"),
-                    ("vf", f"{value['vf']:.5f}"),
-                    ("Tb", f"{value['Tb']:.1f}"),
-                    ("Tm", f"{value['Tm']:.1f}")
-                ]):
-                    item = QTableWidgetItem(col_value)
-                    item.setFlags(Qt.ItemFlag.ItemIsEnabled | Qt.ItemFlag.ItemIsSelectable)  # Read-only
-                    oxygen_table.setItem(row, col, item)
+            # Process individual files and create tabs for them
+            all_oxide_data = {oxide: {'ppm': [], 'vf': [], 'Tb': [], 'Tm': []} for oxide in chain.from_iterable(oxides_results.values())}
+            for file_name, results in oxides_results.items():
+                # Create a table for this file's results
+                file_table = QTableWidget()
+                file_table.setColumnCount(5)
+                file_table.setHorizontalHeaderLabels(["Oxide", "Oxygen (ppm)", "Vol. fraction", "Tb (K)", "Tm (K)"])
 
-            for col in range(5):
-                oxygen_table.setColumnWidth(col, 20)
-            # Export to default file
-            self.save_thread = XlsxSaveThread(self.data_to_export, 'analysis_results.xlsx').start()
-        elif count_columns == 2:  # Выводим теоретические Tb
-            oxygen_table.setColumnCount(3)
-            oxygen_table.setHorizontalHeaderLabels(["Oxide", "Tb (K)", "Tm (K)"])
-            oxygen_table.horizontalHeader().setDefaultAlignment(Qt.AlignmentFlag.AlignLeft)
-            oxygen_table.setRowCount(len(oxides_results))
-            # Сортируем результаты по Tb
-            oxides_results = {key: value for key, value in sorted(oxides_results.items(), key=lambda x: x[1]['Tb'])}
+                # Sort results by Tb
+                sorted_results = {k: v for k, v in sorted(results.items(), key=lambda x: x[1]['Tb'])}
+                file_table.setRowCount(len(sorted_results))
 
-            for row, (oxide, value) in enumerate(oxides_results.items()):
-                for col, (col_key, col_value) in enumerate([
-                    ("oxide", oxide),
-                    ("Tb", f"{value['Tb']:.2f}"),
-                    ("Tm", f"{value['Tm']:.2f}")
-                ]):
-                    item = QTableWidgetItem(col_value)
-                    item.setFlags(Qt.ItemFlag.ItemIsEnabled | Qt.ItemFlag.ItemIsSelectable)  # Read-only
-                    oxygen_table.setItem(row, col, item)
+                # Populate the table
+                for row, (oxide, value) in enumerate(sorted_results.items()):
+                    for col, (col_key, col_value) in enumerate([
+                        ("oxide", oxide),
+                        ("ppm", f"{value['ppm'] * 10000:.5f}"),
+                        ("vf", f"{value['vf']:.5f}"),
+                        ("Tb", f"{value['Tb']:.1f}"),
+                        ("Tm", f"{value['Tm']:.1f}")
+                    ]):
+                        item = QTableWidgetItem(col_value)
+                        item.setFlags(Qt.ItemFlag.ItemIsEnabled | Qt.ItemFlag.ItemIsSelectable)
+                        file_table.setItem(row, col, item)
 
-            for col in range(3):
-                oxygen_table.setColumnWidth(col, 20)
-            # Export to default file
-            self.save_thread = XlsxSaveThread(self.data_to_export, 'oxid_results.xlsx')
-        oxygen_table.resizeColumnsToContents()
+                file_table.resizeColumnsToContents()
 
-        # Add title above the table
-        table_title = QLabel("Oxygen Content Analysis")
-        table_title.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        table_title.setStyleSheet("font-weight: bold; font-size: 14px;")
-        # Add export button
-        export_button = QPushButton("Export data...")
-        export_button.clicked.connect(self.export_data)
+                # Create a tab for this file
+                tab = QWidget()
+                tab_layout = QVBoxLayout()
+                tab_layout.addWidget(file_table)
 
-        table_layout.addWidget(table_title)
-        table_layout.addWidget(oxygen_table)
+                # Add export button for this specific file
+                file_export_button = QPushButton(f"Export {Path(file_name).stem} results...")
+                file_export_button.clicked.connect(lambda _, fn=file_name, res=sorted_results:
+                                                   self.export_single_file(fn, res))
+                tab_layout.addWidget(file_export_button)
+
+                tab.setLayout(tab_layout)
+
+                # Add tab with shortened filename
+                tab_name = Path(file_name).stem
+                if len(tab_name) > 20:
+                    tab_name = "..." + tab_name[-17:]
+                tab_widget.addTab(tab, tab_name)
+
+                # Store data for this file
+                self.export_data_context['all_data'][file_name] = sorted_results
+
+                # Aggregate data for summary tab
+                for oxide_name in all_oxide_data.keys():
+                    # If there is no oxide in this file, then ppm and volume fraction can be considered 0
+                    all_oxide_data[oxide_name]['ppm'].append(sorted_results.get(oxide_name, {}).get('ppm', 0))
+                    all_oxide_data[oxide_name]['vf'].append(sorted_results.get(oxide_name, {}).get('vf', 0))
+                    # ...but not Tb and Tm
+                    if oxide_name in sorted_results:
+                        all_oxide_data[oxide_name]['Tb'].append(sorted_results[oxide_name]['Tb'])
+                        all_oxide_data[oxide_name]['Tm'].append(sorted_results[oxide_name]['Tm'])
+
+            # Create aggregated results tab if we have data
+            if all_oxide_data:
+                # Prepare aggregated data
+                aggregated_results = {}
+                for oxide_name, values in all_oxide_data.items():
+                    aggregated_results[oxide_name] = {
+                        'ppm': np.nanmean(values['ppm']),
+                        'ppm_std': 0.0 if len(values['ppm']) == 1 else np.nanstd(values['ppm'], ddof=1),
+                        'vf': np.nanmean(values['vf']),
+                        'vf_std': 0.0 if len(values['vf']) == 1 else np.nanstd(values['vf'], ddof=1),
+                        'Tb': np.nanmean(values['Tb']),
+                        'Tb_std': 0.0 if len(values['Tb']) == 1 else np.nanstd(values['Tb'], ddof=1),
+                        'Tm': np.nanmean(values['Tm']),
+                        'Tm_std': 0.0 if len(values['Tm']) == 1 else np.nanstd(values['Tm'], ddof=1)
+                    }
+
+                # Sort by Tb
+                aggregated_results = {k: v for k, v in sorted(aggregated_results.items(), key=lambda x: x[1]['Tb'])}
+
+                # Create aggregated table
+                agg_table = QTableWidget()
+                agg_table.setColumnCount(9)
+                agg_table.setHorizontalHeaderLabels([
+                    "Oxide",
+                    "Oxygen (ppm)", "Oxygen std (ppm)",
+                    "Vol. fraction", "Vol. fraction std",
+                    "Tb (K)", "Tb std (K)", "Tm (K)", "Tm std (K)"
+                ])
+                agg_table.setRowCount(len(aggregated_results))
+
+                for row, (oxide, value) in enumerate(aggregated_results.items()):
+                    for col, (col_key, col_value) in enumerate([
+                        ("oxide", oxide),
+                        ("ppm", f"{value['ppm'] * 10000:.5f}"),
+                        ("ppm_std", f"{value['ppm_std'] * 10000:.5f}"),
+                        ("vf", f"{value['vf']:.5f}"),
+                        ("vf_std", f"{value['vf_std']:.5f}"),
+                        ("Tb", f"{value['Tb']:.1f}"),
+                        ("Tb_std", f"{value['Tb_std']:.1f}"),
+                        ("Tm", f"{value['Tm']:.1f}"),
+                        ("Tm_std", f"{value['Tm_std']:.1f}"),
+                    ]):
+                        item = QTableWidgetItem(col_value)
+                        item.setFlags(Qt.ItemFlag.ItemIsEnabled | Qt.ItemFlag.ItemIsSelectable)
+                        agg_table.setItem(row, col, item)
+
+                agg_table.resizeColumnsToContents()
+
+                # Create aggregated tab
+                agg_tab = QWidget()
+                agg_layout = QVBoxLayout()
+                agg_layout.addWidget(QLabel("Aggregated Results (All Files)"))
+                agg_layout.addWidget(agg_table)
+
+                # Add export button for aggregated results
+                agg_export_button = QPushButton("Export aggregated results...")
+                agg_export_button.clicked.connect(lambda _, res=aggregated_results:
+                                                  self.export_aggregated_results(res))
+                agg_layout.addWidget(agg_export_button)
+
+                agg_tab.setLayout(agg_layout)
+                tab_widget.addTab(agg_tab, "Aggregated")
+
+                # Store aggregated data
+                self.export_data_context['aggregated_data'] = aggregated_results
+
+            table_layout.addWidget(tab_widget)
+
+        else:  # Single file or oxid mode
+            oxygen_table = QTableWidget()
+
+            if type == 'one_file_oxsep':
+                oxygen_table.setColumnCount(5)
+                oxygen_table.setHorizontalHeaderLabels(["Oxide", "Oxygen (ppm)", "Vol. fraction", "Tb (K)", "Tm (K)"])
+                oxygen_table.setRowCount(len(oxides_results))
+                oxides_results = {key: value for key, value in sorted(oxides_results.items(), key=lambda x: x[1]['Tb'])}
+
+                for row, (oxide, value) in enumerate(oxides_results.items()):
+                    for col, (col_key, col_value) in enumerate([
+                        ("oxide", oxide),
+                        ("ppm", f"{value['ppm'] * 10000:.5f}"),
+                        ("vf", f"{value['vf']:.5f}"),
+                        ("Tb", f"{value['Tb']:.1f}"),
+                        ("Tm", f"{value['Tm']:.1f}")
+                    ]):
+                        item = QTableWidgetItem(col_value)
+                        item.setFlags(Qt.ItemFlag.ItemIsEnabled | Qt.ItemFlag.ItemIsSelectable)
+                        oxygen_table.setItem(row, col, item)
+
+                # Store single file data
+                self.export_data_context['all_data']['single_file'] = oxides_results
+
+            elif type == 'oxid':
+                oxygen_table.setColumnCount(3)
+                oxygen_table.setHorizontalHeaderLabels(["Oxide", "Tb (K)", "Tm (K)"])
+                oxygen_table.horizontalHeader().setDefaultAlignment(Qt.AlignmentFlag.AlignLeft)
+                oxygen_table.setRowCount(len(oxides_results))
+                oxides_results = {key: value for key, value in sorted(oxides_results.items(), key=lambda x: x[1]['Tb'])}
+
+                for row, (oxide, value) in enumerate(oxides_results.items()):
+                    for col, (col_key, col_value) in enumerate([
+                        ("oxide", oxide),
+                        ("Tb", f"{value['Tb']:.2f}"),
+                        ("Tm", f"{value['Tm']:.2f}")
+                    ]):
+                        item = QTableWidgetItem(col_value)
+                        item.setFlags(Qt.ItemFlag.ItemIsEnabled | Qt.ItemFlag.ItemIsSelectable)
+                        oxygen_table.setItem(row, col, item)
+
+                # Store oxid data
+                self.export_data_context['all_data']['oxid'] = oxides_results
+
+            oxygen_table.resizeColumnsToContents()
+            table_title = QLabel("Oxygen Content Analysis")
+            table_title.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            table_title.setStyleSheet("font-weight: bold; font-size: 14px;")
+            table_layout.addWidget(table_title)
+            table_layout.addWidget(oxygen_table)
+
+        # Add main export button that handles all exports
+        export_button = QPushButton("Export all data...")
+        export_button.clicked.connect(self.export_all_data)
         table_layout.addWidget(export_button)
+
         table_container.setLayout(table_layout)
         splitter.addWidget(table_container)
 
-        # Set initial sizes (2:1 ratio)
+        # Set initial sizes
         splitter.setSizes([self.width() * 2 // 3, self.width() // 3])
-
         main_layout.addWidget(splitter)
         self.results_widget.setLayout(main_layout)
 
@@ -388,63 +503,206 @@ class MainWindow(QMainWindow):
             self.central_widget.setLayout(self.central_layout)
 
         self.central_layout.addWidget(self.results_widget)
-        self.reset_image_zoom()
+
+        # Start background saving of all data
+        self.save_thread = XlsxSaveThread(self.prepare_export_data())
         self.save_thread.start()
 
-    def export_data(self):
+    def prepare_export_data(self):
+        """Prepare data for automatic background export"""
+        data_to_export = []
+        context = self.export_data_context
+
+        if context['type'] == 'multiple_files_oxsep':
+            for file_name, results in context['all_data'].items():
+                base_name = os.path.basename(file_name)
+                data_to_export.append((pd.DataFrame(results), f'{base_name}_results.xlsx'))
+
+            if context['aggregated_data']:
+                data_to_export.append((pd.DataFrame(context['aggregated_data']), 'aggregated_results.xlsx'))
+
+        elif context['type'] == 'one_file_oxsep':
+            data_to_export.append((pd.DataFrame(context['all_data']['single_file']), 'analysis_results.xlsx'))
+
+        elif context['type'] == 'oxid':
+            data_to_export.append((pd.DataFrame(context['all_data']['oxid']), 'oxid_results.xlsx'))
+
+        return data_to_export
+
+    def export_single_file(self, file_name, results):
+        """Export results for a single file"""
+        base_name = Path(file_name).stem
         file_path, _ = QFileDialog.getSaveFileName(
             self,
-            "Save parameters",
-            "",
-            "Excel Files (*.xlsx);;All Files (*)",
-            options=QFileDialog.Option.DontUseNativeDialog
+            f"Export {base_name} Results",
+            f"{base_name}_results.xlsx",
+            "Excel Files (*.xlsx)"
         )
-        if not file_path:
-            return
-        try:
-            self.data_to_export.transpose().to_excel(file_path)
+
+        if file_path:
+            df = pd.DataFrame(results)
+            df.to_excel(file_path, index=False)
             QMessageBox.information(
                 self,
-                "Data saved",
-                f"Data successfully saved to:\n{file_path}",
-                QMessageBox.StandardButton.Ok
-            )
-        except Exception as e:
-            QMessageBox.critical(
-                self,
-                "Error",
-                f"Unable to save file:\n{str(e)}",
+                "Export Complete",
+                f"Results exported successfully to:\n{file_path}",
                 QMessageBox.StandardButton.Ok
             )
 
-    def zoom_in_image(self):
-        if hasattr(self, 'image_label') and hasattr(self, 'original_pixmap'):
-            current_size = self.image_label.pixmap().size()
-            new_size = current_size * 1.2
-            self.image_label.setPixmap(self.original_pixmap.scaled(
+    def export_aggregated_results(self, results):
+        """Export aggregated results"""
+        file_path, _ = QFileDialog.getSaveFileName(
+            self,
+            "Export Aggregated Results",
+            "aggregated_results.xlsx",
+            "Excel Files (*.xlsx)"
+        )
+
+        if file_path:
+            df = pd.DataFrame(results)
+            df.to_excel(file_path, index=False)
+            QMessageBox.information(
+                self,
+                "Export Complete",
+                f"Aggregated results exported successfully to:\n{file_path}",
+                QMessageBox.StandardButton.Ok
+            )
+
+    def export_all_data(self):
+        """Export all available data (individual files + aggregated)"""
+        dir_path = QFileDialog.getExistingDirectory(
+            self,
+            "Select Directory to Export All Data",
+            "",
+        )
+
+        if dir_path:
+            try:
+                # Export individual files
+                for file_name, results in self.export_data_context['all_data'].items():
+                    if self.export_data_context['type'] == 'multiple_files_oxsep':
+                        base_name = Path(file_name).stem
+                        export_path = os.path.join(dir_path, f"{base_name}_results.xlsx")
+                    else:
+                        if self.export_data_context['type'] == 'one_file_oxsep':
+                            export_path = os.path.join(dir_path, "analysis_results.xlsx")
+                        else:
+                            export_path = os.path.join(dir_path, "oxid_results.xlsx")
+
+                    pd.DataFrame(results).to_excel(export_path, index=False)
+
+                # Export aggregated data if exists
+                if self.export_data_context.get('aggregated_data'):
+                    export_path = os.path.join(dir_path, "aggregated_results.xlsx")
+                    pd.DataFrame(self.export_data_context['aggregated_data']).to_excel(export_path, index=False)
+
+                QMessageBox.information(
+                    self,
+                    "Export Complete",
+                    f"All data exported successfully to:\n{dir_path}",
+                    QMessageBox.StandardButton.Ok
+                )
+            except Exception as e:
+                QMessageBox.critical(
+                    self,
+                    "Export Error",
+                    f"Error during export: {str(e)}",
+                    QMessageBox.StandardButton.Ok
+                )
+
+    def make_image(self, data):
+        """Create a tabbed container for multiple images or a single image widget"""
+        if isinstance(data, dict):  # Multiple images
+            tab_widget = QTabWidget()
+
+            for file_name, image_data in data.items():
+                # Create individual image container for each image
+                image_container = self._create_single_image_container(image_data)
+
+                # Generate tab name (you can customize this)
+                tab_name = os.path.basename(file_name)
+
+                tab_widget.addTab(image_container, tab_name)
+
+            return tab_widget
+        else:  # Single image (backward compatibility)
+            return self._create_single_image_container(data)
+
+    def _create_single_image_container(self, image_data):
+        """Helper function to create container for a single image"""
+        image_container = QWidget()
+        image_layout = QVBoxLayout()
+
+        # Convert PIL Image to QPixmap
+        from PIL.ImageQt import ImageQt
+        original_pixmap = QPixmap.fromImage(ImageQt(image_data))
+
+        # Create scroll area for zoomable image
+        image_scroll = QScrollArea()
+        image_scroll.setWidgetResizable(True)
+
+        image_label = QLabel()
+        image_label.setPixmap(original_pixmap.scaled(
+            image_scroll.size(),
+            Qt.AspectRatioMode.KeepAspectRatio,
+            Qt.TransformationMode.SmoothTransformation
+        ))
+        image_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        image_scroll.setWidget(image_label)
+
+        # Store references for zoom functionality
+        image_label.original_pixmap = original_pixmap  # Attach to label
+        image_label.image_scroll = image_scroll  # Attach to label
+
+        # Add zoom controls
+        zoom_controls = QHBoxLayout()
+        zoom_in_btn = QPushButton("Zoom In (+)")
+        zoom_out_btn = QPushButton("Zoom Out (-)")
+        reset_zoom_btn = QPushButton("Reset Zoom")
+
+        # Connect zoom functions with current image's components
+        zoom_in_btn.clicked.connect(lambda: self.zoom_in_image(image_label))
+        zoom_out_btn.clicked.connect(lambda: self.zoom_out_image(image_label))
+        reset_zoom_btn.clicked.connect(lambda: self.reset_image_zoom(image_label))
+
+        zoom_controls.addWidget(zoom_in_btn)
+        zoom_controls.addWidget(zoom_out_btn)
+        zoom_controls.addWidget(reset_zoom_btn)
+
+        image_layout.addWidget(image_scroll)
+        image_layout.addLayout(zoom_controls)
+        image_container.setLayout(image_layout)
+
+        return image_container
+
+    def zoom_in_image(self, image_label):
+        """Zoom in for specific image"""
+        current_size = image_label.pixmap().size()
+        new_size = current_size * 1.2
+        image_label.setPixmap(image_label.original_pixmap.scaled(
+            new_size,
+            Qt.AspectRatioMode.KeepAspectRatio,
+            Qt.TransformationMode.SmoothTransformation
+        ))
+
+    def zoom_out_image(self, image_label):
+        """Zoom out for specific image"""
+        current_size = image_label.pixmap().size()
+        new_size = current_size * 0.8
+        if new_size.width() > 50 and new_size.height() > 50:
+            image_label.setPixmap(image_label.original_pixmap.scaled(
                 new_size,
                 Qt.AspectRatioMode.KeepAspectRatio,
                 Qt.TransformationMode.SmoothTransformation
             ))
 
-    def zoom_out_image(self):
-        if hasattr(self, 'image_label') and hasattr(self, 'original_pixmap'):
-            current_size = self.image_label.pixmap().size()
-            new_size = current_size * 0.8
-            if new_size.width() > 50 and new_size.height() > 50:  # Minimum size
-                self.image_label.setPixmap(self.original_pixmap.scaled(
-                    new_size,
-                    Qt.AspectRatioMode.KeepAspectRatio,
-                    Qt.TransformationMode.SmoothTransformation
-                ))
-
-    def reset_image_zoom(self):
-        if hasattr(self, 'image_label') and hasattr(self, 'original_pixmap'):
-            self.image_label.setPixmap(self.original_pixmap.scaled(
-                self.image_scroll.size(),
-                Qt.AspectRatioMode.KeepAspectRatio,
-                Qt.TransformationMode.SmoothTransformation
-            ))
+    def reset_image_zoom(self, image_label):
+        """Reset zoom for specific image"""
+        image_label.setPixmap(image_label.original_pixmap.scaled(
+            image_label.image_scroll.size(),
+            Qt.AspectRatioMode.KeepAspectRatio,
+            Qt.TransformationMode.SmoothTransformation
+        ))
 
 
 if __name__ == "__main__":
