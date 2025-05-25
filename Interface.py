@@ -30,18 +30,28 @@ class XlsxSaveThread(QThread):
                 obj = pd.DataFrame(obj)
             obj.transpose().to_excel(name)
 
+
 class AnalysisThread(QThread):
     result_ready = pyqtSignal(object, object, object, name="result_ready")
 
-    def __init__(self, file_paths, oxides_params, params, chemistry, mode='oxsep'):  # mode = 'oxid' / 'oxsep'
+    def __init__(self, file_paths, oxides_params, params, chemistry, mode='oxsep'):
         super().__init__()
         self.file_paths = file_paths
         self.oxides_params = oxides_params
         self.params = params
         self.chemistry = chemistry
         self.mode = mode
+        self._is_running = True  # Flag to control thread execution
 
-    def run(self): # Oxid - only params evaluation; Oxsep - full algorithm
+    def stop(self):
+        """Stop the thread gracefully"""
+        self._is_running = False
+        self.terminate()  # Force stop if needed
+
+    def run(self):
+        if not self._is_running:
+            return
+
         if self.mode == 'oxsep':
             self.run_oxsep()
         elif self.mode == 'oxid':
@@ -155,6 +165,13 @@ class MainWindow(QMainWindow):
         self.run_oxid_action.triggered.connect(self.run_oxid)
         toolbar.addAction(self.run_oxid_action)
 
+        # Add Stop action
+        self.stop_action = QAction("Stop Analysis", self)
+        self.stop_action.setToolTip("Stop current analysis")
+        self.stop_action.triggered.connect(self.stop_analysis)
+        self.stop_action.setEnabled(False)  # Disabled by default
+        toolbar.addAction(self.stop_action)
+
         # Connect signals
         self.algo_window.params_changed.connect(self.update_from_algo_window)
         self.oxides_window.params_changed.connect(self.update_from_oxides_window)
@@ -213,6 +230,7 @@ class MainWindow(QMainWindow):
     def run_oxid(self):
         self.run_oxid_action.setDisabled(True)
         self.run_action.setDisabled(True)
+        self.stop_action.setEnabled(True)  # Enable stop button
         self.analysis_thread = AnalysisThread(
             None,
             None,
@@ -226,6 +244,7 @@ class MainWindow(QMainWindow):
     def run(self):
         self.run_oxid_action.setDisabled(True)
         self.run_action.setDisabled(True)
+        self.stop_action.setEnabled(True)  # Enable stop button
 
         if not self.file_path:
             self.choose_file()
@@ -264,9 +283,18 @@ class MainWindow(QMainWindow):
         self.analysis_thread.result_ready.connect(self.display_results)
         self.analysis_thread.start()
 
+    def stop_analysis(self):
+        """Stop the currently running analysis"""
+        if hasattr(self, 'analysis_thread') and self.analysis_thread.isRunning():
+            self.analysis_thread.stop()
+            self.run_action.setEnabled(True)
+            self.run_oxid_action.setEnabled(True)
+            self.stop_action.setEnabled(False)
+
     def display_results(self, oxides_results, data, type: str):
         self.run_action.setEnabled(True)
         self.run_oxid_action.setEnabled(True)
+        self.stop_action.setEnabled(False)  # Disable stop button
         if oxides_results is None:
             QMessageBox.critical(
                 self,
