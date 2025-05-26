@@ -51,6 +51,12 @@ class AlgoWindow(BaseParametersWindow):
                 ('Grid Step Multiplier', 'edit', self.default_params.get('temp_step', 0), 'temp_step'),
                 ('Smoothing', 'edit', self.default_params.get('reference_sigma', 0), 'reference_sigma'),
             ],
+            'Oxides Deleting Parameters:': [
+                ('Minimal Temperature Difference', 'edit', self.default_params.get('oxides_min_distance', 20), 'oxides_min_distance'),
+                ('Warm-Up Adaptive Threshold', 'edit', self.default_params.get('warmup_threshold', 0.3), 'warmup_threshold'),
+                ('Main Adaptive Threshold', 'edit', self.default_params.get('main_threshold', 0.1), 'main_threshold'),
+                ('Unconditional Threshold', 'edit', self.default_params.get('unconditional_threshold', 0.05), 'unconditional_threshold'),
+            ],
         }
 
         main_layout = QVBoxLayout()

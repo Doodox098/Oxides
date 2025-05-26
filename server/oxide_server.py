@@ -197,7 +197,7 @@ def main_process(reference_path, oxides_data, config, chemistry, save_paths=None
     oxides_result = {}
     for oxide_name, oxide in oxide_models.items():
         oxides_result[oxide_name] = {}
-        oxides_result[oxide_name]['ppm'] = oxides_oxygen[oxide_name]
+        oxides_result[oxide_name]['ppm'] = oxides_oxygen[oxide_name] * 10000
         oxides_result[oxide_name]['vf'] = oxides_vf[oxide_name]
         oxides_result[oxide_name]['Tb'] = oxide.get_t_beg().item() + global_shift.item()
         oxides_result[oxide_name]['Tm'] = oxide.get_t_max().item() + global_shift.item()

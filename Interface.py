@@ -28,7 +28,7 @@ class XlsxSaveThread(QThread):
         for obj, name in self.data:
             if isinstance(obj, dict):
                 obj = pd.DataFrame(obj)
-            obj.transpose().to_excel(name)
+            obj.to_excel(name, index=False)
 
 
 class AnalysisThread(QThread):
@@ -338,27 +338,30 @@ class MainWindow(QMainWindow):
             all_oxide_data = {oxide: {'ppm': [], 'vf': [], 'Tb': [], 'Tm': []} for oxide in chain.from_iterable(oxides_results.values())}
             for file_name, results in oxides_results.items():
                 # Create a table for this file's results
+                columns = ["Oxide", "Oxygen (ppm)", "Vol. fraction", "Tb (K)", "Tm (K)"]
                 file_table = QTableWidget()
                 file_table.setColumnCount(5)
-                file_table.setHorizontalHeaderLabels(["Oxide", "Oxygen (ppm)", "Vol. fraction", "Tb (K)", "Tm (K)"])
+                file_table.setHorizontalHeaderLabels(columns)
 
                 # Sort results by Tb
                 sorted_results = {k: v for k, v in sorted(results.items(), key=lambda x: x[1]['Tb'])}
                 file_table.setRowCount(len(sorted_results))
 
                 # Populate the table
+                export_results = []
                 for row, (oxide, value) in enumerate(sorted_results.items()):
+                    export_results.append({})
                     for col, (col_key, col_value) in enumerate([
-                        ("oxide", oxide),
-                        ("ppm", f"{value['ppm'] * 10000:.5f}"),
-                        ("vf", f"{value['vf']:.5f}"),
-                        ("Tb", f"{value['Tb']:.1f}"),
-                        ("Tm", f"{value['Tm']:.1f}")
+                        ("Oxide", oxide),
+                        ("Oxygen (ppm)", f"{value['ppm']:.5f}"),
+                        ("Vol. fraction", f"{value['vf']:.5f}"),
+                        ("Tb (K)", f"{value['Tb']:.1f}"),
+                        ("Tm (K)", f"{value['Tm']:.1f}")
                     ]):
                         item = QTableWidgetItem(col_value)
                         item.setFlags(Qt.ItemFlag.ItemIsEnabled | Qt.ItemFlag.ItemIsSelectable)
                         file_table.setItem(row, col, item)
-
+                        export_results[-1][col_key] = col_value
                 file_table.resizeColumnsToContents()
 
                 # Create a tab for this file
@@ -381,7 +384,7 @@ class MainWindow(QMainWindow):
                 tab_widget.addTab(tab, tab_name)
 
                 # Store data for this file
-                self.export_data_context['all_data'][file_name] = sorted_results
+                self.export_data_context['all_data'][file_name] = export_results
 
                 # Aggregate data for summary tab
                 for oxide_name in all_oxide_data.keys():
@@ -396,46 +399,38 @@ class MainWindow(QMainWindow):
             # Create aggregated results tab if we have data
             if all_oxide_data:
                 # Prepare aggregated data
-                aggregated_results = {}
-                for oxide_name, values in all_oxide_data.items():
-                    aggregated_results[oxide_name] = {
-                        'ppm': np.nanmean(values['ppm']),
-                        'ppm_std': 0.0 if len(values['ppm']) == 1 else np.nanstd(values['ppm'], ddof=1),
-                        'vf': np.nanmean(values['vf']),
-                        'vf_std': 0.0 if len(values['vf']) == 1 else np.nanstd(values['vf'], ddof=1),
-                        'Tb': np.nanmean(values['Tb']),
-                        'Tb_std': 0.0 if len(values['Tb']) == 1 else np.nanstd(values['Tb'], ddof=1),
-                        'Tm': np.nanmean(values['Tm']),
-                        'Tm_std': 0.0 if len(values['Tm']) == 1 else np.nanstd(values['Tm'], ddof=1)
-                    }
-
-                # Sort by Tb
-                aggregated_results = {k: v for k, v in sorted(aggregated_results.items(), key=lambda x: x[1]['Tb'])}
-
-                # Create aggregated table
-                agg_table = QTableWidget()
-                agg_table.setColumnCount(9)
-                agg_table.setHorizontalHeaderLabels([
+                columns = [
                     "Oxide",
                     "Oxygen (ppm)", "Oxygen std (ppm)",
                     "Vol. fraction", "Vol. fraction std",
                     "Tb (K)", "Tb std (K)", "Tm (K)", "Tm std (K)"
-                ])
+                ]
+                aggregated_results = []
+                for oxide_name, values in all_oxide_data.items():
+                    aggregated_results.append({
+                        'Oxide': oxide_name,
+                        'Oxygen (ppm)': f"{float(np.nanmean(values['ppm'])):.5f}",
+                        'Oxygen std (ppm)': 0.0 if len(values['ppm']) == 1 else f"{float(np.nanstd(values['ppm'], ddof=1)):.5f}",
+                        'Vol. fraction': f"{float(np.nanmean(values['vf'])):.5f}",
+                        'Vol. fraction std': 0.0 if len(values['vf']) == 1 else f"{float(np.nanstd(values['vf'], ddof=1)):.5f}",
+                        'Tb (K)': f"{float(np.nanmean(values['Tb'])):.1f}",
+                        'Tb std (K)': 0.0 if len(values['Tb']) == 1 else f"{float(np.nanstd(values['Tb'], ddof=1)):.1f}",
+                        'Tm (K)': f"{float(np.nanmean(values['Tm'])):.1f}",
+                        'Tm std (K)': 0.0 if len(values['Tm']) == 1 else f"{float(np.nanstd(values['Tm'], ddof=1)):.1f}"
+                    })
+
+                # Sort by Tb
+                aggregated_results = sorted(aggregated_results, key=lambda x: x['Tb (K)'])
+
+                # Create aggregated table
+                agg_table = QTableWidget()
+                agg_table.setColumnCount(9)
+                agg_table.setHorizontalHeaderLabels(columns)
                 agg_table.setRowCount(len(aggregated_results))
 
-                for row, (oxide, value) in enumerate(aggregated_results.items()):
-                    for col, (col_key, col_value) in enumerate([
-                        ("oxide", oxide),
-                        ("ppm", f"{value['ppm'] * 10000:.5f}"),
-                        ("ppm_std", f"{value['ppm_std'] * 10000:.5f}"),
-                        ("vf", f"{value['vf']:.5f}"),
-                        ("vf_std", f"{value['vf_std']:.5f}"),
-                        ("Tb", f"{value['Tb']:.1f}"),
-                        ("Tb_std", f"{value['Tb_std']:.1f}"),
-                        ("Tm", f"{value['Tm']:.1f}"),
-                        ("Tm_std", f"{value['Tm_std']:.1f}"),
-                    ]):
-                        item = QTableWidgetItem(col_value)
+                for row, oxide_dict in enumerate(aggregated_results):
+                    for col, (col_key, col_value) in enumerate(oxide_dict.items()):
+                        item = QTableWidgetItem(str(col_value))
                         item.setFlags(Qt.ItemFlag.ItemIsEnabled | Qt.ItemFlag.ItemIsSelectable)
                         agg_table.setItem(row, col, item)
 
@@ -465,45 +460,50 @@ class MainWindow(QMainWindow):
             oxygen_table = QTableWidget()
 
             if type == 'one_file_oxsep':
+                columns = ["Oxide", "Oxygen (ppm)", "Vol. fraction", "Tb (K)", "Tm (K)"]
                 oxygen_table.setColumnCount(5)
                 oxygen_table.setHorizontalHeaderLabels(["Oxide", "Oxygen (ppm)", "Vol. fraction", "Tb (K)", "Tm (K)"])
                 oxygen_table.setRowCount(len(oxides_results))
                 oxides_results = {key: value for key, value in sorted(oxides_results.items(), key=lambda x: x[1]['Tb'])}
-
+                export_results = []
                 for row, (oxide, value) in enumerate(oxides_results.items()):
+                    export_results.append({})
                     for col, (col_key, col_value) in enumerate([
-                        ("oxide", oxide),
-                        ("ppm", f"{value['ppm'] * 10000:.5f}"),
-                        ("vf", f"{value['vf']:.5f}"),
-                        ("Tb", f"{value['Tb']:.1f}"),
-                        ("Tm", f"{value['Tm']:.1f}")
+                        ("Oxide", oxide),
+                        ("Oxygen (ppm)", f"{value['ppm']:.5f}"),
+                        ("Vol. fraction", f"{value['vf']:.5f}"),
+                        ("Tb (K)", f"{value['Tb']:.1f}"),
+                        ("Tm (K)", f"{value['Tm']:.1f}")
                     ]):
                         item = QTableWidgetItem(col_value)
                         item.setFlags(Qt.ItemFlag.ItemIsEnabled | Qt.ItemFlag.ItemIsSelectable)
                         oxygen_table.setItem(row, col, item)
+                        export_results[-1][col_key] = col_value
 
                 # Store single file data
-                self.export_data_context['all_data']['single_file'] = oxides_results
+                self.export_data_context['all_data']['single_file'] = export_results
 
             elif type == 'oxid':
+                columns = ["Oxide", "Tb (K)", "Tm (K)"]
                 oxygen_table.setColumnCount(3)
                 oxygen_table.setHorizontalHeaderLabels(["Oxide", "Tb (K)", "Tm (K)"])
                 oxygen_table.horizontalHeader().setDefaultAlignment(Qt.AlignmentFlag.AlignLeft)
                 oxygen_table.setRowCount(len(oxides_results))
                 oxides_results = {key: value for key, value in sorted(oxides_results.items(), key=lambda x: x[1]['Tb'])}
-
+                export_results = []
                 for row, (oxide, value) in enumerate(oxides_results.items()):
+                    export_results.append({})
                     for col, (col_key, col_value) in enumerate([
-                        ("oxide", oxide),
-                        ("Tb", f"{value['Tb']:.2f}"),
-                        ("Tm", f"{value['Tm']:.2f}")
+                        ("Oxide", oxide),
+                        ("Tb (K)", f"{value['Tb']:.2f}"),
+                        ("Tm (K)", f"{value['Tm']:.2f}")
                     ]):
                         item = QTableWidgetItem(col_value)
                         item.setFlags(Qt.ItemFlag.ItemIsEnabled | Qt.ItemFlag.ItemIsSelectable)
                         oxygen_table.setItem(row, col, item)
-
+                        export_results[-1][col_key] = col_value
                 # Store oxid data
-                self.export_data_context['all_data']['oxid'] = oxides_results
+                self.export_data_context['all_data']['oxid'] = export_results
 
             oxygen_table.resizeColumnsToContents()
             table_title = QLabel("Oxygen Content Analysis")

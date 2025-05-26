@@ -92,7 +92,9 @@ def delete_oxides(oxide_models, global_shift, reference, it, config):
     for oxide_name, oxide in oxide_models.items():
         v_ref = oxygen[np.argmin(np.abs(time - oxide.get_t_max().item() - global_shift.item()))]
         if oxide_name not in config['guaranteed_oxides'] and \
-                ((oxide.get_v_max() < 0.3 * v_ref and it > delete_after) or oxide.get_v_max() < 0.1 * v_ref or oxide.get_v_max() < 0.05):
+                ((oxide.get_v_max() < config['warmup_threshold'] * v_ref and it > delete_after)
+                 or oxide.get_v_max() < config['main_threshold'] * v_ref
+                 or oxide.get_v_max() < config['unconditional_threshold']):
             delete.append(oxide_name)
             print(f'Deleting {oxide_name}: Too small')
 
@@ -102,7 +104,7 @@ def delete_oxides(oxide_models, global_shift, reference, it, config):
         oxide_name_2, oxide_2 = oxide_2
         if oxide_name_1 in delete or oxide_name_2 in delete:
             continue
-        if abs(oxide_1.get_t_max().item() - oxide_2.get_t_max().item()) < 20:
+        if abs(oxide_1.get_t_max().item() - oxide_2.get_t_max().item()) < config['oxides_min_distance']:
             if (oxide_name_2 not in config['guaranteed_oxides']
                     and (abs(oxide_2.get_v_max()) < abs(oxide_1.get_v_max())
                          or oxide_name_1 in config['guaranteed_oxides'])):
@@ -175,10 +177,7 @@ def train(oxide_models, global_shift_delta, reference, optimizer, config):
             optimizer.step(closure)
             if it == 200:
                 for g in optimizer.param_groups:
-                    g['lr'] = 0.01
-            if it == 2000:
-                for g in optimizer.param_groups:
-                    g['momentum'] = 0.9
+                    g['lr'] *= 10
 
             # Check for oscillations in v_max
             any_stable = False  # At least one oxide is not oscillating

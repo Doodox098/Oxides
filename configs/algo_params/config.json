@@ -20,5 +20,9 @@
     "stable_after": 3,
     "window_size": 20,
     "temp_step": 20,
-    "reference_sigma": 50.0
+    "reference_sigma": 50.0,
+    "oxides_min_distance": 20.0,
+    "warmup_threshold": 0.3,
+    "main_threshold": 0.1,
+    "unconditional_threshold": 0.05
 }
