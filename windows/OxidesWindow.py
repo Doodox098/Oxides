@@ -144,11 +144,12 @@ class OxidesWindow(BaseParametersWindow):
             delete_button.setDisabled(True)
 
             fields = QHBoxLayout()
-            fields.addWidget(type_widget, 1)
-            fields.addWidget(density_widget, 1)
-            fields.addWidget(delete_button, 1)
-
-            self.form_layout.addRow(QLabel(oxide_name), fields)
+            for widget in [type_widget, density_widget, delete_button]:
+                widget.setMinimumHeight(20)
+                fields.addWidget(widget, 1)
+            label = QLabel(oxide_name)
+            label.setMinimumHeight(20)
+            self.form_layout.addRow(label, fields)
 
     def add_element(self):
         oxide_name = self.new_oxide_name_edit.text().strip()
