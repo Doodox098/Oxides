@@ -1,9 +1,10 @@
+import ctypes
 from itertools import chain
 from pathlib import Path
 
 import numpy as np
 import pandas as pd
-from PyQt6.QtGui import QAction
+from PyQt6.QtGui import QAction, QIcon
 from PyQt6.QtCore import QSize, Qt, pyqtSignal, QThread
 from PyQt6.QtWidgets import (QApplication, QWidget, QMainWindow, QPushButton,
                              QLabel, QToolBar, QFileDialog,
@@ -733,8 +734,16 @@ class MainWindow(QMainWindow):
         ))
 
 
+def set_taskbar_icon():
+    # Windows-specific taskbar icon fix
+    if sys.platform == 'win32':
+        ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID('myapp.1.0')
+
+
 if __name__ == "__main__":
     app = QApplication(sys.argv)
+    set_taskbar_icon()
     window = MainWindow()
+    window.setWindowIcon(QIcon('icon-round.ico'))
     window.show()
     app.exec()
