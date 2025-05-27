@@ -74,8 +74,8 @@ class AnalysisThread(QThread):
         self.params.setdefault("show_every", 0)
         self.params.setdefault("optim", "RMSprop")
         self.params.setdefault("optim_params", {
-            "lr": 0.001,
-            "momentum": 0.7
+            "lr": self.params["warmup_lr"], # 0.001
+            "momentum": self.params["momentum"] # 0.7
         })
         type = 'one_file_oxsep' if len(self.file_paths) == 1 else 'multiple_files_oxsep'
         try:

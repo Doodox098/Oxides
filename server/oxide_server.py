@@ -29,7 +29,7 @@ def get_oxide_ppm(oxide_models, global_shift_delta, reference, config):
     grid = np.linspace(0, 448.9, num=1000)
     oxides_oxygen = {}
     for name, oxide in oxide_models.items():
-        global_shift = temperature_shift(global_shift_delta)
+        global_shift = temperature_shift(global_shift_delta, config['max_global_shift'])
 
         y = time_to_temp(grid).detach().numpy()
         integral = scipy.integrate.simpson(y, grid)
@@ -174,16 +174,16 @@ def main_process(reference_path, oxides_data, config, chemistry, save_paths=None
     optimizer = getattr(torch.optim, config['optim'])([x for x in oxide_models.parameters()] + [global_shift_delta],
                                                       **config['optim_params'])
 
-    fig = draw_simple(None, temperature_shift(global_shift_delta), reference[:2], config,
+    fig = draw_simple(None, temperature_shift(global_shift_delta, config['max_global_shift']), reference[:2], config,
                       'Нормированая входная зависимость')
     fig.savefig(reference_save_path, format='png', dpi=100)
-    fig = draw_simple(oxide_models, temperature_shift(global_shift_delta), reference[:2], config, 'Первое приближение')
+    fig = draw_simple(oxide_models, temperature_shift(global_shift_delta, config['max_global_shift']), reference[:2], config, 'Первое приближение')
     fig.savefig(first_approximation_save_path, format='png', dpi=100)
 
     train(oxide_models, global_shift_delta, reference[:2], optimizer, config)
     oxides_oxygen = get_oxide_ppm(oxide_models, global_shift_delta, reference, config)
     oxides_vf = get_oxides_vf(oxides_oxygen, elements_table, oxide_params, chemistry['density'])
-    fig = draw_simple(oxide_models, temperature_shift(global_shift_delta), reference[:2], config,
+    fig = draw_simple(oxide_models, temperature_shift(global_shift_delta, config['max_global_shift']), reference[:2], config,
                       'Разложение на составляющие')
     fig.savefig(result_save_path, format='png', dpi=100)
 
@@ -193,7 +193,7 @@ def main_process(reference_path, oxides_data, config, chemistry, save_paths=None
     buf.seek(0)
     image = PILImage.open(buf)
     plt.close(fig)
-    global_shift = temperature_shift(global_shift_delta)
+    global_shift = temperature_shift(global_shift_delta, config['max_global_shift'])
     oxides_result = {}
     for oxide_name, oxide in oxide_models.items():
         oxides_result[oxide_name] = {}
@@ -263,5 +263,5 @@ if __name__ == '__main__':
     print(oxides_oxygen)
     oxides_vf = get_oxides_vf(oxides_oxygen, elements_table, oxide_params)
     print(oxides_vf)
-    fig = draw_simple(oxide_models, temperature_shift(global_shift_delta), reference[:2], config)
+    fig = draw_simple(oxide_models, temperature_shift(global_shift_delta, config['max_global_shift']), reference[:2], config)
     fig.savefig('result.png', format='png', dpi=70)

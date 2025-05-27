@@ -11,8 +11,9 @@
     "t_max_delta_scale": 1.0,
     "t_beg_delta": 20.0,
     "t_beg_delta_scale": 1.0,
+    "max_global_shift": 30.0,
     "num_epoch": 1500,
-    "delete_after": 500,
+    "warmup_duration": 200,
     "stop_after": 100,
     "draw_every": 20,
     "unstable_after": 5,
@@ -22,7 +23,10 @@
     "temp_step": 20,
     "reference_sigma": 50.0,
     "oxides_min_distance": 20.0,
-    "warmup_threshold": 0.3,
-    "main_threshold": 0.1,
-    "unconditional_threshold": 0.05
+    "warmup_threshold": 0.1,
+    "main_threshold": 0.3,
+    "unconditional_threshold": 0.05,
+    "warmup_lr": 0.001,
+    "lr": 0.01,
+    "momentum": 0.7
 }

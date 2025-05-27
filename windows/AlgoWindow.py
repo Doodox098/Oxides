@@ -8,7 +8,7 @@ class AlgoWindow(BaseParametersWindow):
     def __init__(self, *args, **kwargs):
         super().__init__("Algo parameters", "configs/algo_params/config.json", *args, **kwargs)
         self.integer_params = [
-            'num_epoch', 'stop_after', 'draw_every', 'delete_after',
+            'num_epoch', 'stop_after', 'draw_every', 'warmup_duration',
             'unstable_after', 'instability_duration', 'stable_after',
             'window_size', 'temp_step'
         ]
@@ -34,10 +34,11 @@ class AlgoWindow(BaseParametersWindow):
                 ('Tm Scale', 'edit', self.default_params.get('t_max_delta_scale', 0), 't_max_delta_scale'),
                 ('Tb Range', 'edit', self.default_params.get('t_beg_delta', 0), 't_beg_delta'),
                 ('Tb Scale', 'edit', self.default_params.get('t_beg_delta_scale', 0), 't_beg_delta_scale'),
+                ('Global Range', 'edit', self.default_params.get('max_global_shift', 30.0), 'max_global_shift'),
             ],
             'Visualization and Control:': [
                 ('Iteration Count', 'edit', self.default_params.get('num_epoch', 0), 'num_epoch'),
-                ('Delete After', 'edit', self.default_params.get('delete_after', 0), 'delete_after'),
+                ('Warm-Up Duration', 'edit', self.default_params.get('warmup_duration', 0), 'warmup_duration'),
                 ('Stop After', 'edit', self.default_params.get('stop_after', 0), 'stop_after'),
                 ('Render Period', 'edit', self.default_params.get('draw_every', 0), 'draw_every'),
             ],
@@ -53,9 +54,14 @@ class AlgoWindow(BaseParametersWindow):
             ],
             'Oxides Deleting Parameters:': [
                 ('Minimal Temperature Difference', 'edit', self.default_params.get('oxides_min_distance', 20), 'oxides_min_distance'),
-                ('Warm-Up Adaptive Threshold', 'edit', self.default_params.get('warmup_threshold', 0.3), 'warmup_threshold'),
-                ('Main Adaptive Threshold', 'edit', self.default_params.get('main_threshold', 0.1), 'main_threshold'),
+                ('Warm-Up Adaptive Threshold', 'edit', self.default_params.get('warmup_threshold', 0.1), 'warmup_threshold'),
+                ('Main Adaptive Threshold', 'edit', self.default_params.get('main_threshold', 0.3), 'main_threshold'),
                 ('Unconditional Threshold', 'edit', self.default_params.get('unconditional_threshold', 0.05), 'unconditional_threshold'),
+            ],
+            'Optimizer Parameters:': [
+                ('Warm-Up Learning Rate', 'edit', self.default_params.get('warmup_lr', 0.001), 'warmup_lr'),
+                ('Learning Rate', 'edit', self.default_params.get('lr', 0.01), 'lr'),
+                ('Momentum', 'edit', self.default_params.get('momentum', 0.7), 'momentum'),
             ],
         }
 
@@ -71,11 +77,12 @@ class AlgoWindow(BaseParametersWindow):
         columns = [QVBoxLayout() for _ in range(n_columns)]
         for layout in columns:
             inputs_layout.addLayout(layout)
+        idx_to_column = [0, 1, 2, 0, 0, 1, 2]
 
         for i, (group_name, params) in enumerate(input_structure.items()):
             group_box = QGroupBox(group_name)
             form_layout = QFormLayout()
-            columns[i % n_columns].addWidget(group_box)
+            columns[idx_to_column[i]].addWidget(group_box)
 
             for label, widget_type, default_value, param_name in params:
                 if widget_type == 'edit':

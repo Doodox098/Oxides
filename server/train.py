@@ -7,7 +7,7 @@ import numpy as np
 import tqdm
 
 
-def temperature_shift(delta, max_delta=50, delta_scale=1):
+def temperature_shift(delta, max_delta, delta_scale=1):
     return max_delta * (2 * torch.nn.functional.sigmoid(delta * delta_scale) - 1)
 
 
@@ -87,13 +87,13 @@ def draw(oxide_models, global_shift, reference, it, config, begin_losses, usage_
 def delete_oxides(oxide_models, global_shift, reference, it, config):
     oxygen, time = reference
     delete = []
-    delete_after = config['delete_after']
+    warmup_duration = config['warmup_duration']
 
     for oxide_name, oxide in oxide_models.items():
         v_ref = oxygen[np.argmin(np.abs(time - oxide.get_t_max().item() - global_shift.item()))]
         if oxide_name not in config['guaranteed_oxides'] and \
-                ((oxide.get_v_max() < config['warmup_threshold'] * v_ref and it > delete_after)
-                 or oxide.get_v_max() < config['main_threshold'] * v_ref
+                ((oxide.get_v_max() < config['main_threshold'] * v_ref and it > warmup_duration)
+                 or oxide.get_v_max() < config['warmup_threshold'] * v_ref
                  or oxide.get_v_max() < config['unconditional_threshold']):
             delete.append(oxide_name)
             print(f'Deleting {oxide_name}: Too small')
@@ -124,7 +124,7 @@ def train(oxide_models, global_shift_delta, reference, optimizer, config):
     stop_after = config['stop_after']
     draw_every = config['draw_every']
     show_every = config['show_every']
-    delete_after = config['delete_after']
+    warmup_duration = config['warmup_duration']
     unstable_after = config['unstable_after']  # Number of iterations to check for monotonicity
     stable_after = config['stable_after']
     max_instability_duration = config['instability_duration']
@@ -150,7 +150,7 @@ def train(oxide_models, global_shift_delta, reference, optimizer, config):
     try:
         for it in tqdm.tqdm(range(num_epoch)):
             oxide_models.train()
-            global_shift = temperature_shift(global_shift_delta)
+            global_shift = temperature_shift(global_shift_delta, config['max_global_shift'])
 
             def closure():
                 optimizer.zero_grad()
@@ -175,9 +175,9 @@ def train(oxide_models, global_shift_delta, reference, optimizer, config):
                 return loss
 
             optimizer.step(closure)
-            if it == 200:
+            if it == warmup_duration:
                 for g in optimizer.param_groups:
-                    g['lr'] *= 10
+                    g['lr'] = config['lr']
 
             # Check for oscillations in v_max
             any_stable = False  # At least one oxide is not oscillating
@@ -254,7 +254,7 @@ def train(oxide_models, global_shift_delta, reference, optimizer, config):
 
     except Exception as e:
         print(e)
-        global_shift = temperature_shift(global_shift_delta)
+        global_shift = temperature_shift(global_shift_delta, config['max_global_shift'])
         for oxide_name, oxide in oxide_models.items():
             print(oxide_name)
             print('v_max: ', oxide.get_v_max().item())
