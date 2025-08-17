@@ -10,13 +10,78 @@ from .oxid import get_tb, load_chem_data, load_oxides, get_tb_tm
 from .train import temperature_shift, train, draw_simple
 import scipy
 import torch
-from .reference_read import reference_read
 from .OxideModel import OxideModel
 
 
 class OxideServer:  # Из этого надо сделать ViewModel
     def __init__(self):
         pass
+
+
+def gen_gauss(size, sigma):
+    mean = size // 2
+    x = np.arange(0, size)
+    return np.exp(-(x - mean) ** 2 / (2 * sigma ** 2)) / (sigma * (2 * np.pi) ** 0.5)
+
+
+def reference_read(path, config):
+    temp_step = config['temp_step']
+    sigma = config['reference_sigma']
+    data = pd.read_csv(path)
+    values = data['dO3']
+    temp = np.interp(np.arange(len(data['dO3'])), np.arange(np.array(~data['dT1'].isna()).sum() * 10, step=10),
+                           data['dT1'][~data['dT1'].isna()].sort_values())
+    temp = (np.sort(temp) + 273)[::temp_step]
+    mask = np.logical_or(min(config['limits']) > temp, temp > max(config['limits']))
+    gauss = gen_gauss(len(values), sigma)
+    smoothed_mean = np.convolve(np.maximum(np.nan_to_num(values), 0), gauss, mode='same')[::temp_step]
+    smoothed_mean[mask] = 0
+    v_max = smoothed_mean.max()
+
+    return [torch.tensor(smoothed_mean / v_max), torch.tensor(temp), v_max]
+
+
+def get_reference_plot(path, config):
+    import matplotlib
+    matplotlib.use('Agg')  # Set non-interactive backend
+    from matplotlib import pyplot as plt
+
+    fig = plt.figure(figsize=(12, 8), dpi=100)
+    plt.title('Нормированая зависимость', fontsize=20)
+    plt.xlabel('Температура К', fontsize=16)
+    plt.ylabel('Скорость выделения CO ppm/сек', fontsize=16)
+
+    oxygen, time = reference_read(path, config)[:2]
+
+    plt.plot(time, oxygen, '-')
+    plt.grid(True)
+
+    fig.tight_layout()
+    fig.canvas.draw()
+
+    from io import BytesIO
+    buf = BytesIO()
+    fig.savefig(buf, format='png', dpi=70)
+    buf.seek(0)
+    image = PILImage.open(buf)
+    plt.close(fig)
+
+    return image
+
+
+def get_references_plot(paths, config):
+    images = {}
+    for reference_path in paths:
+        save_paths = {
+            'reference_save_path': f'{reference_path}_input.png',
+            'first_approximation_save_path': f'{reference_path}_fa.png',
+            'result_save_path': f'{reference_path}_result.png',
+            'gif_name': f'{reference_path}_train.gif',
+        }
+        image = get_reference_plot(reference_path, config)
+        images[reference_path] = image
+
+    return images
 
 
 def get_oxide_ppm(oxide_models, global_shift_delta, reference, config):

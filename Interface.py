@@ -9,12 +9,12 @@ from PyQt6.QtCore import QSize, Qt, pyqtSignal, QThread
 from PyQt6.QtWidgets import (QApplication, QWidget, QMainWindow, QPushButton,
                              QLabel, QToolBar, QFileDialog,
                              QMessageBox, QHBoxLayout, QVBoxLayout,
-                             QScrollArea, QSplitter, QTabWidget, QFormLayout, QLineEdit, QFrame)
+                             QScrollArea, QSplitter, QTabWidget, QFormLayout, QLineEdit, QFrame, QGroupBox)
 from PyQt6.QtWidgets import QTableWidget, QTableWidgetItem
 from PyQt6.QtGui import QPixmap
 import sys
 import os
-from server.oxide_server import main_process, oxid_process, process_multiple_files
+from server.oxide_server import main_process, oxid_process, process_multiple_files, get_references_plot
 from windows.AlgoWindow import AlgoWindow
 from windows.ChemWindow import ChemWindow
 from windows.OxidesWindow import OxidesWindow
@@ -22,13 +22,15 @@ from windows.OxidesWindow import OxidesWindow
 class ServerRequestType(Enum):
     OXIDES_PARAMS_CALCULATION = 1
     SEPARATE_OXIDES = 2
-    PREPROCESS_FILES = 3
+    EXTRACT_TOTAL_OXYGEN = 3
+    PLOT_REFERENCES = 4
 
 class ServerResponseType(Enum):
     ONE_FILE_SEPARATE_OXIDES = 1
     MULTIPLE_FILES_SEPARATE_OXIDES = 2
     OXIDES_PARAMS_CALCULATION = 3
-    PREPROCESS_FILES_COMPLETE = 4 # Added for preprocessing completion
+    EXTRACT_TOTAL_OXYGEN_COMPLETE = 4
+    PLOT_REFERENCES_COMPLETE = 5
 
 class XlsxSaveThread(QThread):
     def __init__(self, data):
@@ -66,7 +68,9 @@ class AnalysisThread(QThread):
             self.run_oxsep()
         elif self.mode == ServerRequestType.SEPARATE_OXIDES:
             self.run_oxid()
-        elif self.mode == ServerRequestType.PREPROCESS_FILES:
+        elif self.mode == ServerRequestType.EXTRACT_TOTAL_OXYGEN:
+            self.run_file_preprocess()
+        elif self.mode == ServerRequestType.PLOT_REFERENCES:
             self.run_file_preprocess()
         else:
             self.result_ready.emit(None, 'Wrong mode', None)
@@ -84,30 +88,39 @@ class AnalysisThread(QThread):
 
     def run_file_preprocess(self):
         """Extract total oxygen from filenames"""
-        total_oxygen_list = []
-        failed_files = []
-        for path in self.file_paths:
-            try:
-                # Attempt to extract from filename (e.g., "Sample 5.2 data.csv")
-                filename = os.path.basename(path)
-                parts = filename.split()
-                if len(parts) >= 3:
-                    oxygen_str = parts[2].replace(',', '.') # Handle comma decimal separator
-                    oxygen_value = float(oxygen_str)
-                    total_oxygen_list.append(oxygen_value)
-                else:
-                    raise ValueError("Filename format incorrect")
-            except (ValueError, IndexError):
-                # If extraction fails, default to 0 or NaN, or mark as failed
-                total_oxygen_list.append(0.0) # Or np.nan if preferred
-                failed_files.append(path)
+        total_oxygen_list = None
+        if self.mode == ServerRequestType.EXTRACT_TOTAL_OXYGEN:
+            total_oxygen_list = []
+            failed_files = []
+            for path in self.file_paths:
+                try:
+                    # Attempt to extract from filename (e.g., "Sample 5.2 data.csv")
+                    filename = os.path.basename(path)
+                    parts = filename.split()
+                    if len(parts) >= 3:
+                        oxygen_str = parts[2].replace(',', '.') # Handle comma decimal separator
+                        oxygen_value = float(oxygen_str)
+                        total_oxygen_list.append(oxygen_value)
+                    else:
+                        raise ValueError("Filename format incorrect")
+                except (ValueError, IndexError):
+                    # If extraction fails, default to 0 or NaN, or mark as failed
+                    total_oxygen_list.append(0.0) # Or np.nan if preferred
+                    failed_files.append(path)
 
-        if failed_files:
-            print(f"Warning: Could not extract total oxygen for files: {failed_files}. Defaulting to 0.0.")
+            if failed_files:
+                print(f"Warning: Could not extract total oxygen for files: {failed_files}. Defaulting to 0.0.")
 
-        # Emit the list of extracted total oxygen values
-        self.result_ready.emit(total_oxygen_list, None, ServerResponseType.PREPROCESS_FILES_COMPLETE)
+        reference_plots = None
+        try:
+            plot_config = self.params.copy()
+            reference_plots = get_references_plot(self.file_paths, plot_config)
+            print("Reference plots generated successfully.")
+        except Exception as e:
+            print(f"Warning: Could not generate reference plots: {e}")
+            reference_plots = None
 
+        self.result_ready.emit(total_oxygen_list, reference_plots, ServerResponseType.EXTRACT_TOTAL_OXYGEN_COMPLETE)
 
     def run_oxsep(self):
         # Ensure default params are set, including 'limits'
@@ -258,9 +271,9 @@ class MainWindow(QMainWindow):
         """Creates the permanent sidebar widget."""
         sidebar = QFrame()
         sidebar.setFrameShape(QFrame.Shape.StyledPanel)
-        sidebar.setFixedWidth(300) # Set a fixed width for the sidebar
+        sidebar.setFixedWidth(300)
         layout = QVBoxLayout(sidebar)
-        layout.setAlignment(Qt.AlignmentFlag.AlignTop) # Align items to the top
+        layout.setAlignment(Qt.AlignmentFlag.AlignTop)
 
         title = QLabel("Configuration")
         title.setStyleSheet("font-weight: bold; font-size: 14px;")
@@ -273,67 +286,68 @@ class MainWindow(QMainWindow):
         self.sidebar_scroll.setWidget(self.sidebar_inner_widget)
         layout.addWidget(self.sidebar_scroll)
 
-        # Add Temperature Limits section
-        limits_label = QLabel("Temperature Limits (K)")
-        limits_label.setStyleSheet("font-weight: bold; margin-top: 10px;")
-        self.sidebar_form_layout.addRow(limits_label)
+        # === Temperature Limits Group ===
+        self.limits_group = QGroupBox("Temperature Limits (K)")
+        self.limits_group.setStyleSheet("QGroupBox { font-weight: bold; }")
+        limits_layout = QFormLayout(self.limits_group)
 
         self.min_temp_input = QLineEdit()
         self.min_temp_input.setText(str(self.params['limits'][0]))
         self.min_temp_input.editingFinished.connect(self.on_limits_edited)
-        self.sidebar_form_layout.addRow("Min Temp:", self.min_temp_input)
+        limits_layout.addRow("Min Temp:", self.min_temp_input)
 
         self.max_temp_input = QLineEdit()
         self.max_temp_input.setText(str(self.params['limits'][1]))
         self.max_temp_input.editingFinished.connect(self.on_limits_edited)
-        self.sidebar_form_layout.addRow("Max Temp:", self.max_temp_input)
+        limits_layout.addRow("Max Temp:", self.max_temp_input)
 
-        # Add a separator or label before file-specific data
-        files_label = QLabel("File Oxygen Content")
-        files_label.setStyleSheet("font-weight: bold; margin-top: 15px;")
-        self.sidebar_form_layout.addRow(files_label)
+        self.sidebar_form_layout.addRow(self.limits_group)
 
-        # Placeholder for file oxygen data (will be populated dynamically)
+        # === File Oxygen Content Group ===
+        self.files_group = QGroupBox("File Oxygen Content")
+        self.files_group.setStyleSheet("QGroupBox { font-weight: bold; }")
+        self.files_layout = QFormLayout(self.files_group)
+
         self.oxygen_data_placeholder = QLabel("No files loaded.")
         self.oxygen_data_placeholder.setWordWrap(True)
-        self.sidebar_form_layout.addRow(self.oxygen_data_placeholder)
+        self.files_layout.addRow(self.oxygen_data_placeholder)
+
+        self.sidebar_form_layout.addRow(self.files_group)
+
+        # Keep track of dynamically added oxygen input widgets
+        self.oxygen_inputs = []
+        self.filename_labels = []
 
         return sidebar
 
     def update_sidebar_file_data(self):
         """Updates the file-specific part of the sidebar."""
-        # Clear existing file oxygen widgets (find them dynamically or use a container)
-        # A simple approach: clear from the 'files_label' onwards, but keep limits
-        # Find the index of the "File Oxygen Content" label and remove items after it
-        file_label_index = -1
-        for i in range(self.sidebar_form_layout.rowCount()):
-            label_item = self.sidebar_form_layout.itemAt(i, QFormLayout.ItemRole.LabelRole)
-            if label_item and label_item.widget() and isinstance(label_item.widget(), QLabel):
-                label_text = label_item.widget().text()
-                if label_text == "File Oxygen Content":
-                    file_label_index = i
-                    break
+        # Clear existing oxygen input widgets
+        for widget in self.oxygen_inputs + self.filename_labels:
+            widget.deleteLater()
+        self.oxygen_inputs.clear()
+        self.filename_labels.clear()
 
-        # Remove rows after the file label index
-        for i in reversed(range(self.sidebar_form_layout.rowCount())):
-            if i > file_label_index and file_label_index != -1:
-                self.sidebar_form_layout.removeRow(i)
+        # Remove placeholder if it exists
+        if self.oxygen_data_placeholder.parent() is not None:
+            self.oxygen_data_placeholder.setParent(None)
 
-        # Repopulate based on current data
         if self.file_paths and len(self.file_paths) == len(self.total_oxygen_data):
-            self.oxygen_data_placeholder.setParent(None) # Remove placeholder
             for i, (path, oxygen) in enumerate(zip(self.file_paths, self.total_oxygen_data)):
                 filename_label = QLabel(os.path.basename(path))
                 oxygen_input = QLineEdit()
                 oxygen_input.setText(str(oxygen))
-                # Store the index to know which file's oxygen is being edited
                 oxygen_input.setProperty('file_index', i)
                 oxygen_input.editingFinished.connect(self.on_oxygen_edited)
-                self.sidebar_form_layout.addRow(filename_label, oxygen_input)
+
+                self.files_layout.addRow(filename_label, oxygen_input)
+                self.oxygen_inputs.append(oxygen_input)
+                self.filename_labels.append(filename_label)
         else:
-            # Show placeholder if no files or data mismatch
-            if self.oxygen_data_placeholder.parent() is None: # Re-add if removed
-                 self.sidebar_form_layout.addRow(self.oxygen_data_placeholder)
+            # Re-add placeholder if no files or mismatch
+            if self.oxygen_data_placeholder.parent() is None:
+                self.files_layout.addRow(self.oxygen_data_placeholder)
+
 
     def on_oxygen_edited(self):
         """Handles the event when an oxygen value is edited in the sidebar."""
@@ -363,6 +377,18 @@ class MainWindow(QMainWindow):
                 raise ValueError("Min temperature must be less than Max temperature.")
             self.params['limits'] = [new_min, new_max]
             print(f"Updated temperature limits to [{new_min}, {new_max}]")
+
+            self.plotting_thread = AnalysisThread(
+                self.file_paths,
+                None,  # oxides_params not needed
+                self.params,  # params not needed
+                None,  # chemistry not needed
+                None,
+                mode=ServerRequestType.PLOT_REFERENCES,
+            )
+            self.plotting_thread.result_ready.connect(self.handle_preprocessing_results)
+            self.plotting_thread.start()
+
         except ValueError as e:
             QMessageBox.warning(self, "Invalid Input", f"Please enter valid numbers for temperature limits. {str(e)}")
             # Revert to the previous values in the input fields
@@ -449,38 +475,56 @@ class MainWindow(QMainWindow):
         self.preprocessing_thread = AnalysisThread(
             self.file_paths,
             None, # oxides_params not needed
-            None, # params not needed
+            self.params, # params not needed
             None, # chemistry not needed
             None,
-            mode=ServerRequestType.PREPROCESS_FILES,
+            mode=ServerRequestType.EXTRACT_TOTAL_OXYGEN,
         )
         self.preprocessing_thread.result_ready.connect(self.handle_preprocessing_results)
         self.preprocessing_thread.start()
 
-    def handle_preprocessing_results(self, total_oxygen_list, _, response_type):
+    def handle_preprocessing_results(self, total_oxygen_list, reference_plots, response_type):
         """Handles the results from the preprocessing thread."""
         self.run_action.setEnabled(True)
         self.run_oxid_action.setEnabled(True)
         self.stop_action.setEnabled(False)
 
-        if response_type == ServerResponseType.PREPROCESS_FILES_COMPLETE and total_oxygen_list is not None:
-            # Update the total_oxygen_data with the results from preprocessing
-            # Ensure lengths match, pad or truncate if necessary (though ideally they should match)
+        if total_oxygen_list is not None:
             if len(total_oxygen_list) == len(self.file_paths):
                  self.total_oxygen_data = total_oxygen_list
             else:
-                 # Handle mismatch - perhaps log a warning and keep defaults
                  print(f"Warning: Preprocessing returned {len(total_oxygen_list)} oxygen values for {len(self.file_paths)} files.")
-                 # Pad/truncate or keep defaults (current self.total_oxygen_data)
-                 # For now, we'll keep the initialized defaults if lengths don't match exactly
                  pass
 
-            # Update the sidebar with the new or default oxygen data (file-specific part)
             self.update_sidebar_file_data()
         else:
              # Handle potential errors in preprocessing if needed
              print("Preprocessing did not complete successfully or returned unexpected data.")
              self.update_sidebar_file_data() # Still update sidebar, likely with defaults
+
+        if reference_plots is not None:
+            print("Displaying reference plots...")
+            self.clear_content_area()
+            results_widget = QWidget()
+            main_layout = QHBoxLayout(results_widget)
+            splitter = QSplitter(Qt.Orientation.Horizontal)
+
+            image_container = self.make_image(reference_plots)
+            splitter.addWidget(image_container)
+
+            info_container = QWidget()
+            info_layout = QVBoxLayout()
+            info_label = QLabel("Reference plots for selected files.\nRun analysis to see results.")
+            info_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            info_label.setWordWrap(True)
+            info_layout.addWidget(info_label)
+            info_container.setLayout(info_layout)
+            splitter.addWidget(info_container)
+
+            splitter.setSizes([self.width() * 2 // 3, self.width() // 3])
+            main_layout.addWidget(splitter)
+            self.content_layout.addWidget(results_widget)
+
 
     def run_oxid(self):
         self.run_oxid_action.setDisabled(True)
