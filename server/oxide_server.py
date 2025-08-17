@@ -15,7 +15,7 @@ from .OxideModel import OxideModel
 
 
 class OxideServer:  # Из этого надо сделать ViewModel
-    def __init__(self, ):
+    def __init__(self):
         pass
 
 
@@ -134,7 +134,7 @@ def get_oxides_structure(oxide_params, elements_table):
         oxide_params[key]['structure'] = structure
 
 
-def main_process(reference_path, oxides_data, config, chemistry, save_paths=None):
+def main_process(reference_path, oxides_data, config, chemistry, total_oxygen: float, save_paths=None):
     # Set matplotlib to use Agg backend (non-interactive)
     import matplotlib
     matplotlib.use('Agg')  # This must be done before importing pyplot
@@ -167,6 +167,7 @@ def main_process(reference_path, oxides_data, config, chemistry, save_paths=None
     get_oxides_structure(oxide_params, elements_table)
 
     reference = reference_read(reference_path, config)
+    reference.append(total_oxygen)
 
     oxide_models, global_shift_delta = init_model(config, oxide_params, reference)
     import torch.optim
@@ -205,17 +206,18 @@ def main_process(reference_path, oxides_data, config, chemistry, save_paths=None
         oxides_result[oxide_name]['E'] = oxide.get_E().item()
     return oxides_result, image
 
-def process_multiple_files(reference_paths, oxides_data, config, chemistry):
+
+def process_multiple_files(reference_paths, oxides_data, config, chemistry, total_oxygen):
     results = {}
     images = {}
-    for reference_path in reference_paths:
+    for reference_path, total_oxygen_ in zip(reference_paths, total_oxygen):
         save_paths = {
             'reference_save_path': f'{reference_path}_input.png',
             'first_approximation_save_path': f'{reference_path}_fa.png',
             'result_save_path': f'{reference_path}_result.png',
             'gif_name': f'{reference_path}_train.gif',
         }
-        oxides_result, image = main_process(reference_path, oxides_data, config, chemistry)
+        oxides_result, image = main_process(reference_path, oxides_data, config, chemistry, total_oxygen_)
         results[reference_path] = oxides_result
         images[reference_path] = image
 

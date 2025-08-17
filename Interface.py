@@ -1,7 +1,7 @@
 import ctypes
 from itertools import chain
 from pathlib import Path
-
+from enum import Enum
 import numpy as np
 import pandas as pd
 from PyQt6.QtGui import QAction, QIcon
@@ -9,16 +9,26 @@ from PyQt6.QtCore import QSize, Qt, pyqtSignal, QThread
 from PyQt6.QtWidgets import (QApplication, QWidget, QMainWindow, QPushButton,
                              QLabel, QToolBar, QFileDialog,
                              QMessageBox, QHBoxLayout, QVBoxLayout,
-                             QScrollArea, QSplitter, QTabWidget)
+                             QScrollArea, QSplitter, QTabWidget, QFormLayout, QLineEdit, QFrame)
 from PyQt6.QtWidgets import QTableWidget, QTableWidgetItem
 from PyQt6.QtGui import QPixmap
 import sys
 import os
-
 from server.oxide_server import main_process, oxid_process, process_multiple_files
 from windows.AlgoWindow import AlgoWindow
 from windows.ChemWindow import ChemWindow
 from windows.OxidesWindow import OxidesWindow
+
+class ServerRequestType(Enum):
+    OXIDES_PARAMS_CALCULATION = 1
+    SEPARATE_OXIDES = 2
+    PREPROCESS_FILES = 3
+
+class ServerResponseType(Enum):
+    ONE_FILE_SEPARATE_OXIDES = 1
+    MULTIPLE_FILES_SEPARATE_OXIDES = 2
+    OXIDES_PARAMS_CALCULATION = 3
+    PREPROCESS_FILES_COMPLETE = 4 # Added for preprocessing completion
 
 class XlsxSaveThread(QThread):
     def __init__(self, data):
@@ -31,87 +41,136 @@ class XlsxSaveThread(QThread):
                 obj = pd.DataFrame(obj)
             obj.to_excel(name, index=False)
 
-
 class AnalysisThread(QThread):
     result_ready = pyqtSignal(object, object, object, name="result_ready")
 
-    def __init__(self, file_paths, oxides_params, params, chemistry, mode='oxsep'):
+    def __init__(self, file_paths, oxides_params, params, chemistry, total_oxygen, mode=ServerRequestType.OXIDES_PARAMS_CALCULATION):
         super().__init__()
         self.file_paths = file_paths
         self.oxides_params = oxides_params
-        self.params = params
+        self.params = params # This now includes 'limits'
+        self.total_oxygen = total_oxygen
         self.chemistry = chemistry
         self.mode = mode
-        self._is_running = True  # Flag to control thread execution
+        self._is_running = True
 
     def stop(self):
         """Stop the thread gracefully"""
         self._is_running = False
-        self.terminate()  # Force stop if needed
+        self.wait() # Prefer wait() over terminate() for graceful shutdown
 
     def run(self):
         if not self._is_running:
             return
-
-        if self.mode == 'oxsep':
+        if self.mode == ServerRequestType.OXIDES_PARAMS_CALCULATION:
             self.run_oxsep()
-        elif self.mode == 'oxid':
+        elif self.mode == ServerRequestType.SEPARATE_OXIDES:
             self.run_oxid()
+        elif self.mode == ServerRequestType.PREPROCESS_FILES:
+            self.run_file_preprocess()
         else:
-            self.result_ready.emit(None, 'Wrong mode')
+            self.result_ready.emit(None, 'Wrong mode', None)
 
     def run_oxid(self):
         try:
+            # Pass limits to oxid_process if needed, or handle within the function
+            # For now, assuming oxid_process doesn't need limits directly in this call signature
             oxides_result, data = oxid_process(
                 self.chemistry
             )
-            self.result_ready.emit(oxides_result, data, 'oxid')
+            self.result_ready.emit(oxides_result, data, ServerResponseType.OXIDES_PARAMS_CALCULATION)
         except Exception as e:
-            self.result_ready.emit(None, str(e), 'oxid')
+            self.result_ready.emit(None, str(e), ServerResponseType.OXIDES_PARAMS_CALCULATION)
+
+    def run_file_preprocess(self):
+        """Extract total oxygen from filenames"""
+        total_oxygen_list = []
+        failed_files = []
+        for path in self.file_paths:
+            try:
+                # Attempt to extract from filename (e.g., "Sample 5.2 data.csv")
+                filename = os.path.basename(path)
+                parts = filename.split()
+                if len(parts) >= 3:
+                    oxygen_str = parts[2].replace(',', '.') # Handle comma decimal separator
+                    oxygen_value = float(oxygen_str)
+                    total_oxygen_list.append(oxygen_value)
+                else:
+                    raise ValueError("Filename format incorrect")
+            except (ValueError, IndexError):
+                # If extraction fails, default to 0 or NaN, or mark as failed
+                total_oxygen_list.append(0.0) # Or np.nan if preferred
+                failed_files.append(path)
+
+        if failed_files:
+            print(f"Warning: Could not extract total oxygen for files: {failed_files}. Defaulting to 0.0.")
+
+        # Emit the list of extracted total oxygen values
+        self.result_ready.emit(total_oxygen_list, None, ServerResponseType.PREPROCESS_FILES_COMPLETE)
+
 
     def run_oxsep(self):
+        # Ensure default params are set, including 'limits'
         self.params.setdefault("model", "first")
         self.params.setdefault("show_every", 0)
         self.params.setdefault("optim", "RMSprop")
+        self.params.setdefault("limits", [0, 2500]) # Ensure 'limits' is in params
         self.params.setdefault("optim_params", {
-            "lr": self.params["warmup_lr"], # 0.001
-            "momentum": self.params["momentum"] # 0.7
+            "lr": self.params.get("warmup_lr", 0.001), # Default if not set
+            "momentum": self.params.get("momentum", 0.7) # Default if not set
         })
-        type = 'one_file_oxsep' if len(self.file_paths) == 1 else 'multiple_files_oxsep'
+
+        # Determine response type based on number of files
+        type_response = ServerResponseType.ONE_FILE_SEPARATE_OXIDES if len(self.file_paths) == 1 else ServerResponseType.MULTIPLE_FILES_SEPARATE_OXIDES
+
         try:
-            if type == 'one_file_oxsep':
+            # Extract temperature limits from params
+            min_temp, max_temp = self.params.get('limits', [0, 2500])
+            # Pass limits as part of the config (params) dictionary
+            analysis_params = self.params.copy() # Pass the full params including limits
+
+            if type_response == ServerResponseType.ONE_FILE_SEPARATE_OXIDES:
                 oxides_result, image = main_process(
-                    self.file_paths[0],
+                    self.file_paths[0], # Single path string
                     self.oxides_params,
-                    self.params,
-                    self.chemistry
+                    analysis_params, # Pass params including limits
+                    self.chemistry,
+                    self.total_oxygen
                 )
-            else:
+            else: # MULTIPLE FILES
                 oxides_result, image = process_multiple_files(
-                    self.file_paths,
+                    self.file_paths, # List of paths
                     self.oxides_params,
-                    self.params,
-                    self.chemistry
+                    analysis_params, # Pass params including limits
+                    self.chemistry,
+                    self.total_oxygen
                 )
-            self.result_ready.emit(oxides_result, image, type)
+            self.result_ready.emit(oxides_result, image, type_response)
         except Exception as e:
-            self.result_ready.emit(None, str(e), type)
+            self.result_ready.emit(None, str(e), type_response)
 
 
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
         self.setWindowTitle("Oxides Separation")
-        self.setMinimumSize(QSize(1100, 600))
+        self.setMinimumSize(QSize(1300, 700)) # Increased minimum width for sidebar
         self.statusBar().showMessage("No file selected")
 
-        # Инициализация окон параметров для получения значений по умолчанию
+        # Store file paths and total oxygen data
+        self.file_paths = []
+        self.total_oxygen_data = [] # List to store oxygen values corresponding to file_paths
+
+        # Initialize parameter windows
         self.algo_window = AlgoWindow(self)
         self.oxides_window = OxidesWindow(self)
         self.chem_window = ChemWindow(self)
 
-        # Инициализация параметров из окон по умолчанию
-        self.params = self.algo_window.default_params
+        # Initialize parameters from windows
+        self.params = self.algo_window.default_params.copy()
+        # Add default 'limits' to params/config
+        self.params.setdefault('limits', [0, 2500])
+
         self.oxides_params = {
             'guaranteed_oxides': [name for name in self.oxides_window.default_params.keys()
                                   if self.oxides_window.default_params[name]['type'] == 0],
@@ -120,10 +179,9 @@ class MainWindow(QMainWindow):
             'density': {name: self.oxides_window.default_params[name]['density']
                         for name in self.oxides_window.default_params.keys()}
         }
-        self.chemistry = self.chem_window.default_params
+        self.chemistry = self.chem_window.default_params.copy()
 
         self.init_ui()
-        self.file_path = None
 
     def init_ui(self):
         # Create toolbar
@@ -132,7 +190,7 @@ class MainWindow(QMainWindow):
 
         # File action
         file_action = QAction("File", self)
-        file_action.setToolTip("Choose file to analyze")
+        file_action.setToolTip("Choose file(s) to analyze")
         file_action.triggered.connect(self.choose_file)
         toolbar.addAction(file_action)
 
@@ -170,17 +228,165 @@ class MainWindow(QMainWindow):
         self.stop_action = QAction("Stop Analysis", self)
         self.stop_action.setToolTip("Stop current analysis")
         self.stop_action.triggered.connect(self.stop_analysis)
-        self.stop_action.setEnabled(False)  # Disabled by default
+        self.stop_action.setEnabled(False)
         toolbar.addAction(self.stop_action)
 
-        # Connect signals
+        # Connect signals from parameter windows
         self.algo_window.params_changed.connect(self.update_from_algo_window)
         self.oxides_window.params_changed.connect(self.update_from_oxides_window)
         self.chem_window.params_changed.connect(self.update_from_chem_window)
 
-        # Set central widget
+        # --- Central Widget Layout ---
+        # Main central widget
         self.central_widget = QWidget()
         self.setCentralWidget(self.central_widget)
+        self.main_layout = QHBoxLayout(self.central_widget) # Use QHBoxLayout for sidebar
+
+        # Create the permanent sidebar widget
+        self.sidebar_widget = self.create_sidebar()
+        self.main_layout.addWidget(self.sidebar_widget)
+
+        # Content area (will hold results or placeholder)
+        self.content_area = QWidget()
+        self.content_layout = QVBoxLayout(self.content_area)
+        self.main_layout.addWidget(self.content_area)
+
+        # Initially show a placeholder or message in content area
+        self.show_initial_content()
+
+    def create_sidebar(self):
+        """Creates the permanent sidebar widget."""
+        sidebar = QFrame()
+        sidebar.setFrameShape(QFrame.Shape.StyledPanel)
+        sidebar.setFixedWidth(300) # Set a fixed width for the sidebar
+        layout = QVBoxLayout(sidebar)
+        layout.setAlignment(Qt.AlignmentFlag.AlignTop) # Align items to the top
+
+        title = QLabel("Configuration")
+        title.setStyleSheet("font-weight: bold; font-size: 14px;")
+        layout.addWidget(title)
+
+        self.sidebar_scroll = QScrollArea()
+        self.sidebar_scroll.setWidgetResizable(True)
+        self.sidebar_inner_widget = QWidget()
+        self.sidebar_form_layout = QFormLayout(self.sidebar_inner_widget)
+        self.sidebar_scroll.setWidget(self.sidebar_inner_widget)
+        layout.addWidget(self.sidebar_scroll)
+
+        # Add Temperature Limits section
+        limits_label = QLabel("Temperature Limits (K)")
+        limits_label.setStyleSheet("font-weight: bold; margin-top: 10px;")
+        self.sidebar_form_layout.addRow(limits_label)
+
+        self.min_temp_input = QLineEdit()
+        self.min_temp_input.setText(str(self.params['limits'][0]))
+        self.min_temp_input.editingFinished.connect(self.on_limits_edited)
+        self.sidebar_form_layout.addRow("Min Temp:", self.min_temp_input)
+
+        self.max_temp_input = QLineEdit()
+        self.max_temp_input.setText(str(self.params['limits'][1]))
+        self.max_temp_input.editingFinished.connect(self.on_limits_edited)
+        self.sidebar_form_layout.addRow("Max Temp:", self.max_temp_input)
+
+        # Add a separator or label before file-specific data
+        files_label = QLabel("File Oxygen Content")
+        files_label.setStyleSheet("font-weight: bold; margin-top: 15px;")
+        self.sidebar_form_layout.addRow(files_label)
+
+        # Placeholder for file oxygen data (will be populated dynamically)
+        self.oxygen_data_placeholder = QLabel("No files loaded.")
+        self.oxygen_data_placeholder.setWordWrap(True)
+        self.sidebar_form_layout.addRow(self.oxygen_data_placeholder)
+
+        return sidebar
+
+    def update_sidebar_file_data(self):
+        """Updates the file-specific part of the sidebar."""
+        # Clear existing file oxygen widgets (find them dynamically or use a container)
+        # A simple approach: clear from the 'files_label' onwards, but keep limits
+        # Find the index of the "File Oxygen Content" label and remove items after it
+        file_label_index = -1
+        for i in range(self.sidebar_form_layout.rowCount()):
+            label_item = self.sidebar_form_layout.itemAt(i, QFormLayout.ItemRole.LabelRole)
+            if label_item and label_item.widget() and isinstance(label_item.widget(), QLabel):
+                label_text = label_item.widget().text()
+                if label_text == "File Oxygen Content":
+                    file_label_index = i
+                    break
+
+        # Remove rows after the file label index
+        for i in reversed(range(self.sidebar_form_layout.rowCount())):
+            if i > file_label_index and file_label_index != -1:
+                self.sidebar_form_layout.removeRow(i)
+
+        # Repopulate based on current data
+        if self.file_paths and len(self.file_paths) == len(self.total_oxygen_data):
+            self.oxygen_data_placeholder.setParent(None) # Remove placeholder
+            for i, (path, oxygen) in enumerate(zip(self.file_paths, self.total_oxygen_data)):
+                filename_label = QLabel(os.path.basename(path))
+                oxygen_input = QLineEdit()
+                oxygen_input.setText(str(oxygen))
+                # Store the index to know which file's oxygen is being edited
+                oxygen_input.setProperty('file_index', i)
+                oxygen_input.editingFinished.connect(self.on_oxygen_edited)
+                self.sidebar_form_layout.addRow(filename_label, oxygen_input)
+        else:
+            # Show placeholder if no files or data mismatch
+            if self.oxygen_data_placeholder.parent() is None: # Re-add if removed
+                 self.sidebar_form_layout.addRow(self.oxygen_data_placeholder)
+
+    def on_oxygen_edited(self):
+        """Handles the event when an oxygen value is edited in the sidebar."""
+        sender = self.sender()
+        if isinstance(sender, QLineEdit):
+            try:
+                new_value = float(sender.text())
+                file_index = sender.property('file_index')
+                if 0 <= file_index < len(self.total_oxygen_data):
+                    self.total_oxygen_data[file_index] = new_value
+                    print(f"Updated total_oxygen for file {file_index} to {new_value}")
+                else:
+                    print(f"Error: Invalid file index {file_index}")
+            except ValueError:
+                QMessageBox.warning(self, "Invalid Input", "Please enter a valid number for total oxygen.")
+                # Revert to the previous value in the input field
+                file_index = sender.property('file_index')
+                if 0 <= file_index < len(self.total_oxygen_data):
+                     sender.setText(str(self.total_oxygen_data[file_index]))
+
+    def on_limits_edited(self):
+        """Handles the event when temperature limits are edited."""
+        try:
+            new_min = float(self.min_temp_input.text())
+            new_max = float(self.max_temp_input.text())
+            if new_min >= new_max:
+                raise ValueError("Min temperature must be less than Max temperature.")
+            self.params['limits'] = [new_min, new_max]
+            print(f"Updated temperature limits to [{new_min}, {new_max}]")
+        except ValueError as e:
+            QMessageBox.warning(self, "Invalid Input", f"Please enter valid numbers for temperature limits. {str(e)}")
+            # Revert to the previous values in the input fields
+            old_min, old_max = self.params['limits']
+            self.min_temp_input.setText(str(old_min))
+            self.max_temp_input.setText(str(old_max))
+
+
+    def show_initial_content(self):
+        """Shows initial content or message when no results are displayed."""
+        # Clear previous content
+        self.clear_content_area()
+
+        # Add initial message or widget
+        initial_label = QLabel("Please load files and run analysis.")
+        initial_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.content_layout.addWidget(initial_label)
+
+    def clear_content_area(self):
+        """Clears all widgets from the main content area."""
+        while self.content_layout.count():
+            child = self.content_layout.takeAt(0)
+            if child.widget():
+                child.widget().deleteLater()
 
     def open_algo_window(self):
         self.algo_window.init_ui()
@@ -215,87 +421,142 @@ class MainWindow(QMainWindow):
             "CSV Files (*.csv);;All Files (*)",
             options=QFileDialog.Option.DontUseNativeDialog
         )
-
         if file_paths:
-            self.file_paths = file_paths  # Store list of paths
+            self.file_paths = file_paths
             file_names = [os.path.basename(path) for path in file_paths]
 
             # Update status bar message
             if len(file_names) == 1:
-                self.statusBar().showMessage(f"Selected file: {os.path.basename(file_paths[0])}")
+                self.statusBar().showMessage(f"Selected file: {file_names[0]}")
             else:
                 self.statusBar().showMessage(f"Selected {len(file_names)} files")
 
-            self.file_path = file_paths[0]
+            # Initialize total_oxygen_data list with 0.0 defaults
+            self.total_oxygen_data = [0.0] * len(self.file_paths)
+            # Trigger preprocessing to attempt to extract oxygen values
+            self.preprocess_files()
+
+    def preprocess_files(self):
+        """Starts the preprocessing thread to extract total oxygen."""
+        if not self.file_paths:
+            return
+
+        self.run_oxid_action.setDisabled(True)
+        self.run_action.setDisabled(True)
+        self.stop_action.setEnabled(True)
+
+        # Create and start preprocessing thread
+        self.preprocessing_thread = AnalysisThread(
+            self.file_paths,
+            None, # oxides_params not needed
+            None, # params not needed
+            None, # chemistry not needed
+            None,
+            mode=ServerRequestType.PREPROCESS_FILES,
+        )
+        self.preprocessing_thread.result_ready.connect(self.handle_preprocessing_results)
+        self.preprocessing_thread.start()
+
+    def handle_preprocessing_results(self, total_oxygen_list, _, response_type):
+        """Handles the results from the preprocessing thread."""
+        self.run_action.setEnabled(True)
+        self.run_oxid_action.setEnabled(True)
+        self.stop_action.setEnabled(False)
+
+        if response_type == ServerResponseType.PREPROCESS_FILES_COMPLETE and total_oxygen_list is not None:
+            # Update the total_oxygen_data with the results from preprocessing
+            # Ensure lengths match, pad or truncate if necessary (though ideally they should match)
+            if len(total_oxygen_list) == len(self.file_paths):
+                 self.total_oxygen_data = total_oxygen_list
+            else:
+                 # Handle mismatch - perhaps log a warning and keep defaults
+                 print(f"Warning: Preprocessing returned {len(total_oxygen_list)} oxygen values for {len(self.file_paths)} files.")
+                 # Pad/truncate or keep defaults (current self.total_oxygen_data)
+                 # For now, we'll keep the initialized defaults if lengths don't match exactly
+                 pass
+
+            # Update the sidebar with the new or default oxygen data (file-specific part)
+            self.update_sidebar_file_data()
+        else:
+             # Handle potential errors in preprocessing if needed
+             print("Preprocessing did not complete successfully or returned unexpected data.")
+             self.update_sidebar_file_data() # Still update sidebar, likely with defaults
 
     def run_oxid(self):
         self.run_oxid_action.setDisabled(True)
         self.run_action.setDisabled(True)
-        self.stop_action.setEnabled(True)  # Enable stop button
+        self.stop_action.setEnabled(True)
         self.analysis_thread = AnalysisThread(
             None,
             None,
-            None,
+            self.params, # Pass params including limits
             self.chemistry,
-            mode='oxid',
+            self.total_oxygen_data,
+            mode=ServerRequestType.SEPARATE_OXIDES,
         )
         self.analysis_thread.result_ready.connect(self.display_results)
         self.analysis_thread.start()
 
     def run(self):
+        if not self.file_paths:
+            QMessageBox.critical(
+                self,
+                "Error",
+                "No files selected. Please choose file(s) to analyze.",
+                QMessageBox.StandardButton.Ok
+            )
+            return
+
         self.run_oxid_action.setDisabled(True)
         self.run_action.setDisabled(True)
-        self.stop_action.setEnabled(True)  # Enable stop button
-
-        if not self.file_path:
-            self.choose_file()
-            if not self.file_path:
-                QMessageBox.critical(
-                    self,
-                    "Error",
-                    "Choose file to analyze",
-                    QMessageBox.StandardButton.Ok
-                )
-                self.run_action.setEnabled(True)
-                self.run_oxid_action.setEnabled(True)
-                return
+        self.stop_action.setEnabled(True)
 
         print("Algorithm parameters:")
         for key, value in self.params.items():
             print(f"{key}: {value}")
-
         print("\nOxides parameters:")
         for key, value in self.oxides_params.items():
             print(f"{key}: {value}")
-
         print("\nChemistry:")
         for key, value in self.chemistry.items():
             print(f"{key}: {value}")
+        print(f"\nFile paths: {self.file_paths}")
+        print(f"\nTotal Oxygen Data: {self.total_oxygen_data}")
 
-        print(f"\nFile path: {self.file_path}")
-
+        # Start the main analysis thread, passing params (which includes 'limits')
         self.analysis_thread = AnalysisThread(
             self.file_paths,
             self.oxides_params,
-            self.params,
+            self.params, # Pass the full params dict including 'limits'
             self.chemistry,
-            mode='oxsep',
+            self.total_oxygen_data,
+            mode=ServerRequestType.OXIDES_PARAMS_CALCULATION,
         )
         self.analysis_thread.result_ready.connect(self.display_results)
         self.analysis_thread.start()
 
     def stop_analysis(self):
-        """Stop the currently running analysis"""
+        """Stop the currently running analysis or preprocessing"""
+        stopped_any = False
+        # Stop main analysis thread if running
         if hasattr(self, 'analysis_thread') and self.analysis_thread.isRunning():
             self.analysis_thread.stop()
+            stopped_any = True
+        # Stop preprocessing thread if running
+        if hasattr(self, 'preprocessing_thread') and self.preprocessing_thread.isRunning():
+            self.preprocessing_thread.stop()
+            stopped_any = True
+
+        if stopped_any:
             self.run_action.setEnabled(True)
             self.run_oxid_action.setEnabled(True)
             self.stop_action.setEnabled(False)
 
-    def display_results(self, oxides_results, data, type: str):
+    def display_results(self, oxides_results, data, type_response: ServerResponseType):
         self.run_action.setEnabled(True)
         self.run_oxid_action.setEnabled(True)
-        self.stop_action.setEnabled(False)  # Disable stop button
+        self.stop_action.setEnabled(False)
+
         if oxides_results is None:
             QMessageBox.critical(
                 self,
@@ -305,14 +566,12 @@ class MainWindow(QMainWindow):
             )
             return
 
-        # Clear previous results if any
-        if hasattr(self, 'results_widget'):
-            self.central_widget.layout().removeWidget(self.results_widget)
-            self.results_widget.deleteLater()
+        # Clear previous results in the content area
+        self.clear_content_area()
 
         # Create a new widget to hold all results
-        self.results_widget = QWidget()
-        main_layout = QHBoxLayout()
+        results_widget = QWidget()
+        main_layout = QHBoxLayout(results_widget)
         splitter = QSplitter(Qt.Orientation.Horizontal)
 
         # Left side: Image with zoom capabilities
@@ -324,31 +583,26 @@ class MainWindow(QMainWindow):
         table_container = QWidget()
         table_layout = QVBoxLayout()
 
-        # Store export data with context
+        # Store export data with context (as before, logic unchanged)
         self.export_data_context = {
-            'type': type,
+            'type': type_response,
             'all_data': {},
             'aggregated_data': None
         }
 
-        if type == 'multiple_files_oxsep':
-            # Create a tab widget for multiple files
-            tab_widget = QTabWidget()
+        # --- (Rest of display_results logic remains largely the same) ---
 
-            # Process individual files and create tabs for them
+        if type_response == ServerResponseType.MULTIPLE_FILES_SEPARATE_OXIDES:
+            # --- Multiple Files Table Logic (Unchanged) ---
+            tab_widget = QTabWidget()
             all_oxide_data = {oxide: {'ppm': [], 'vf': [], 'Tb': [], 'Tm': []} for oxide in chain.from_iterable(oxides_results.values())}
             for file_name, results in oxides_results.items():
-                # Create a table for this file's results
                 columns = ["Oxide", "Oxygen (ppm)", "Vol. fraction", "Tb (K)", "Tm (K)"]
                 file_table = QTableWidget()
                 file_table.setColumnCount(5)
                 file_table.setHorizontalHeaderLabels(columns)
-
-                # Sort results by Tb
                 sorted_results = {k: v for k, v in sorted(results.items(), key=lambda x: x[1]['Tb'])}
                 file_table.setRowCount(len(sorted_results))
-
-                # Populate the table
                 export_results = []
                 for row, (oxide, value) in enumerate(sorted_results.items()):
                     export_results.append({})
@@ -364,42 +618,26 @@ class MainWindow(QMainWindow):
                         file_table.setItem(row, col, item)
                         export_results[-1][col_key] = col_value
                 file_table.resizeColumnsToContents()
-
-                # Create a tab for this file
                 tab = QWidget()
                 tab_layout = QVBoxLayout()
                 tab_layout.addWidget(file_table)
-
-                # Add export button for this specific file
                 file_export_button = QPushButton(f"Export {Path(file_name).stem} results...")
                 file_export_button.clicked.connect(lambda _, fn=file_name, res=sorted_results:
                                                    self.export_single_file(fn, res))
                 tab_layout.addWidget(file_export_button)
-
                 tab.setLayout(tab_layout)
-
-                # Add tab with shortened filename
                 tab_name = Path(file_name).stem
                 if len(tab_name) > 20:
                     tab_name = "..." + tab_name[-17:]
                 tab_widget.addTab(tab, tab_name)
-
-                # Store data for this file
                 self.export_data_context['all_data'][file_name] = export_results
-
-                # Aggregate data for summary tab
                 for oxide_name in all_oxide_data.keys():
-                    # If there is no oxide in this file, then ppm and volume fraction can be considered 0
                     all_oxide_data[oxide_name]['ppm'].append(sorted_results.get(oxide_name, {}).get('ppm', 0))
                     all_oxide_data[oxide_name]['vf'].append(sorted_results.get(oxide_name, {}).get('vf', 0))
-                    # ...but not Tb and Tm
                     if oxide_name in sorted_results:
                         all_oxide_data[oxide_name]['Tb'].append(sorted_results[oxide_name]['Tb'])
                         all_oxide_data[oxide_name]['Tm'].append(sorted_results[oxide_name]['Tm'])
-
-            # Create aggregated results tab if we have data
             if all_oxide_data:
-                # Prepare aggregated data
                 columns = [
                     "Oxide",
                     "Oxygen (ppm)", "Oxygen std (ppm)",
@@ -411,59 +649,44 @@ class MainWindow(QMainWindow):
                     aggregated_results.append({
                         'Oxide': oxide_name,
                         'Oxygen (ppm)': f"{float(np.nanmean(values['ppm'])):.5f}",
-                        'Oxygen std (ppm)': 0.0 if len(values['ppm']) == 1 else f"{float(np.nanstd(values['ppm'], ddof=1)):.5f}",
+                        'Oxygen std (ppm)': 0.0 if len(values['ppm']) <= 1 else f"{float(np.nanstd(values['ppm'], ddof=1)):.5f}",
                         'Vol. fraction': f"{float(np.nanmean(values['vf'])):.5f}",
-                        'Vol. fraction std': 0.0 if len(values['vf']) == 1 else f"{float(np.nanstd(values['vf'], ddof=1)):.5f}",
+                        'Vol. fraction std': 0.0 if len(values['vf']) <= 1 else f"{float(np.nanstd(values['vf'], ddof=1)):.5f}",
                         'Tb (K)': f"{float(np.nanmean(values['Tb'])):.1f}",
-                        'Tb std (K)': 0.0 if len(values['Tb']) == 1 else f"{float(np.nanstd(values['Tb'], ddof=1)):.1f}",
+                        'Tb std (K)': 0.0 if len(values['Tb']) <= 1 else f"{float(np.nanstd(values['Tb'], ddof=1)):.1f}",
                         'Tm (K)': f"{float(np.nanmean(values['Tm'])):.1f}",
-                        'Tm std (K)': 0.0 if len(values['Tm']) == 1 else f"{float(np.nanstd(values['Tm'], ddof=1)):.1f}"
+                        'Tm std (K)': 0.0 if len(values['Tm']) <= 1 else f"{float(np.nanstd(values['Tm'], ddof=1)):.1f}"
                     })
-
-                # Sort by Tb
                 aggregated_results = sorted(aggregated_results, key=lambda x: x['Tb (K)'])
-
-                # Create aggregated table
                 agg_table = QTableWidget()
                 agg_table.setColumnCount(9)
                 agg_table.setHorizontalHeaderLabels(columns)
                 agg_table.setRowCount(len(aggregated_results))
-
                 for row, oxide_dict in enumerate(aggregated_results):
                     for col, (col_key, col_value) in enumerate(oxide_dict.items()):
                         item = QTableWidgetItem(str(col_value))
                         item.setFlags(Qt.ItemFlag.ItemIsEnabled | Qt.ItemFlag.ItemIsSelectable)
                         agg_table.setItem(row, col, item)
-
                 agg_table.resizeColumnsToContents()
-
-                # Create aggregated tab
                 agg_tab = QWidget()
                 agg_layout = QVBoxLayout()
                 agg_layout.addWidget(QLabel("Aggregated Results (All Files)"))
                 agg_layout.addWidget(agg_table)
-
-                # Add export button for aggregated results
                 agg_export_button = QPushButton("Export aggregated results...")
                 agg_export_button.clicked.connect(lambda _, res=aggregated_results:
                                                   self.export_aggregated_results(res))
                 agg_layout.addWidget(agg_export_button)
-
                 agg_tab.setLayout(agg_layout)
                 tab_widget.addTab(agg_tab, "Aggregated")
-
-                # Store aggregated data
                 self.export_data_context['aggregated_data'] = aggregated_results
-
             table_layout.addWidget(tab_widget)
-
-        else:  # Single file or oxid mode
+        else: # Single file or oxid mode
             oxygen_table = QTableWidget()
-
-            if type == 'one_file_oxsep':
+            if type_response == ServerResponseType.ONE_FILE_SEPARATE_OXIDES:
+                # --- Single File Table Logic (Unchanged) ---
                 columns = ["Oxide", "Oxygen (ppm)", "Vol. fraction", "Tb (K)", "Tm (K)"]
                 oxygen_table.setColumnCount(5)
-                oxygen_table.setHorizontalHeaderLabels(["Oxide", "Oxygen (ppm)", "Vol. fraction", "Tb (K)", "Tm (K)"])
+                oxygen_table.setHorizontalHeaderLabels(columns)
                 oxygen_table.setRowCount(len(oxides_results))
                 oxides_results = {key: value for key, value in sorted(oxides_results.items(), key=lambda x: x[1]['Tb'])}
                 export_results = []
@@ -480,14 +703,12 @@ class MainWindow(QMainWindow):
                         item.setFlags(Qt.ItemFlag.ItemIsEnabled | Qt.ItemFlag.ItemIsSelectable)
                         oxygen_table.setItem(row, col, item)
                         export_results[-1][col_key] = col_value
-
-                # Store single file data
                 self.export_data_context['all_data']['single_file'] = export_results
-
-            elif type == 'oxid':
+            elif type_response == ServerResponseType.OXIDES_PARAMS_CALCULATION:
+                # --- OxID Results Table Logic (Unchanged) ---
                 columns = ["Oxide", "Tb (K)", "Tm (K)"]
                 oxygen_table.setColumnCount(3)
-                oxygen_table.setHorizontalHeaderLabels(["Oxide", "Tb (K)", "Tm (K)"])
+                oxygen_table.setHorizontalHeaderLabels(columns)
                 oxygen_table.horizontalHeader().setDefaultAlignment(Qt.AlignmentFlag.AlignLeft)
                 oxygen_table.setRowCount(len(oxides_results))
                 oxides_results = {key: value for key, value in sorted(oxides_results.items(), key=lambda x: x[1]['Tb'])}
@@ -503,9 +724,7 @@ class MainWindow(QMainWindow):
                         item.setFlags(Qt.ItemFlag.ItemIsEnabled | Qt.ItemFlag.ItemIsSelectable)
                         oxygen_table.setItem(row, col, item)
                         export_results[-1][col_key] = col_value
-                # Store oxid data
                 self.export_data_context['all_data']['oxid'] = export_results
-
             oxygen_table.resizeColumnsToContents()
             table_title = QLabel("Oxygen Content Analysis")
             table_title.setAlignment(Qt.AlignmentFlag.AlignCenter)
@@ -513,49 +732,45 @@ class MainWindow(QMainWindow):
             table_layout.addWidget(table_title)
             table_layout.addWidget(oxygen_table)
 
-        # Add main export button that handles all exports
+        # Add main export button (Unchanged)
         export_button = QPushButton("Export all data...")
         export_button.clicked.connect(self.export_all_data)
         table_layout.addWidget(export_button)
-
         table_container.setLayout(table_layout)
         splitter.addWidget(table_container)
-
-        # Set initial sizes
         splitter.setSizes([self.width() * 2 // 3, self.width() // 3])
         main_layout.addWidget(splitter)
-        self.results_widget.setLayout(main_layout)
-
-        # Add the results widget to the main window
-        if not hasattr(self, 'central_layout'):
-            self.central_layout = QVBoxLayout()
-            self.central_widget.setLayout(self.central_layout)
-
-        self.central_layout.addWidget(self.results_widget)
-
-        # Start background saving of all data
+        # Add the results widget to the main content area
+        self.content_layout.addWidget(results_widget)
+        # Start background saving (Unchanged)
         self.save_thread = XlsxSaveThread(self.prepare_export_data())
         self.save_thread.start()
 
+    # --- Remaining methods (export, image handling) remain largely unchanged ---
+    # (Keeping them for completeness, but they are not the focus of this modification)
     def prepare_export_data(self):
         """Prepare data for automatic background export"""
         data_to_export = []
         context = self.export_data_context
+        # Determine context type string for export logic
+        context_type_str = None
+        if context['type'] == ServerResponseType.MULTIPLE_FILES_SEPARATE_OXIDES:
+            context_type_str = 'multiple_files_oxsep'
+        elif context['type'] == ServerResponseType.ONE_FILE_SEPARATE_OXIDES:
+            context_type_str = 'one_file_oxsep'
+        elif context['type'] == ServerResponseType.OXIDES_PARAMS_CALCULATION:
+            context_type_str = 'oxid'
 
-        if context['type'] == 'multiple_files_oxsep':
+        if context_type_str == 'multiple_files_oxsep':
             for file_name, results in context['all_data'].items():
                 base_name = os.path.basename(file_name)
                 data_to_export.append((pd.DataFrame(results), f'{base_name}_results.xlsx'))
-
             if context['aggregated_data']:
                 data_to_export.append((pd.DataFrame(context['aggregated_data']), 'aggregated_results.xlsx'))
-
-        elif context['type'] == 'one_file_oxsep':
+        elif context_type_str == 'one_file_oxsep':
             data_to_export.append((pd.DataFrame(context['all_data']['single_file']), 'analysis_results.xlsx'))
-
-        elif context['type'] == 'oxid':
+        elif context_type_str == 'oxid':
             data_to_export.append((pd.DataFrame(context['all_data']['oxid']), 'oxid_results.xlsx'))
-
         return data_to_export
 
     def export_single_file(self, file_name, results):
@@ -567,9 +782,21 @@ class MainWindow(QMainWindow):
             f"{base_name}_results.xlsx",
             "Excel Files (*.xlsx)"
         )
-
         if file_path:
-            df = pd.DataFrame(results)
+            # Convert dict results to list of dicts if necessary for DataFrame
+            if isinstance(results, dict):
+                df_data = []
+                for oxide, value in results.items():
+                    df_data.append({
+                        "Oxide": oxide,
+                        "Oxygen (ppm)": f"{value['ppm']:.5f}" if 'ppm' in value else "",
+                        "Vol. fraction": f"{value['vf']:.5f}" if 'vf' in value else "",
+                        "Tb (K)": f"{value['Tb']:.1f}" if 'Tb' in value else "",
+                        "Tm (K)": f"{value['Tm']:.1f}" if 'Tm' in value else ""
+                    })
+                df = pd.DataFrame(df_data)
+            else:
+                df = pd.DataFrame(results)
             df.to_excel(file_path, index=False)
             QMessageBox.information(
                 self,
@@ -586,7 +813,6 @@ class MainWindow(QMainWindow):
             "aggregated_results.xlsx",
             "Excel Files (*.xlsx)"
         )
-
         if file_path:
             df = pd.DataFrame(results)
             df.to_excel(file_path, index=False)
@@ -604,27 +830,44 @@ class MainWindow(QMainWindow):
             "Select Directory to Export All Data",
             "",
         )
-
         if dir_path:
             try:
-                # Export individual files
+                context_type_str = None
+                if self.export_data_context['type'] == ServerResponseType.MULTIPLE_FILES_SEPARATE_OXIDES:
+                    context_type_str = 'multiple_files_oxsep'
+                elif self.export_data_context['type'] == ServerResponseType.ONE_FILE_SEPARATE_OXIDES:
+                    context_type_str = 'one_file_oxsep'
+                elif self.export_data_context['type'] == ServerResponseType.OXIDES_PARAMS_CALCULATION:
+                    context_type_str = 'oxid'
+
                 for file_name, results in self.export_data_context['all_data'].items():
-                    if self.export_data_context['type'] == 'multiple_files_oxsep':
+                    if context_type_str == 'multiple_files_oxsep':
                         base_name = Path(file_name).stem
                         export_path = os.path.join(dir_path, f"{base_name}_results.xlsx")
                     else:
-                        if self.export_data_context['type'] == 'one_file_oxsep':
+                        if context_type_str == 'one_file_oxsep':
                             export_path = os.path.join(dir_path, "analysis_results.xlsx")
                         else:
                             export_path = os.path.join(dir_path, "oxid_results.xlsx")
+                     # Convert dict results to list of dicts if necessary for DataFrame
+                    if isinstance(results, dict):
+                        df_data = []
+                        for oxide, value in results.items():
+                            df_data.append({
+                                "Oxide": oxide,
+                                "Oxygen (ppm)": f"{value['ppm']:.5f}" if 'ppm' in value else "",
+                                "Vol. fraction": f"{value['vf']:.5f}" if 'vf' in value else "",
+                                "Tb (K)": f"{value['Tb']:.1f}" if 'Tb' in value else "",
+                                "Tm (K)": f"{value['Tm']:.1f}" if 'Tm' in value else ""
+                            })
+                        df = pd.DataFrame(df_data)
+                    else:
+                        df = pd.DataFrame(results)
+                    df.to_excel(export_path, index=False)
 
-                    pd.DataFrame(results).to_excel(export_path, index=False)
-
-                # Export aggregated data if exists
                 if self.export_data_context.get('aggregated_data'):
                     export_path = os.path.join(dir_path, "aggregated_results.xlsx")
                     pd.DataFrame(self.export_data_context['aggregated_data']).to_excel(export_path, index=False)
-
                 QMessageBox.information(
                     self,
                     "Export Complete",
@@ -641,35 +884,24 @@ class MainWindow(QMainWindow):
 
     def make_image(self, data):
         """Create a tabbed container for multiple images or a single image widget"""
-        if isinstance(data, dict):  # Multiple images
+        if isinstance(data, dict):
             tab_widget = QTabWidget()
-
             for file_name, image_data in data.items():
-                # Create individual image container for each image
                 image_container = self._create_single_image_container(image_data)
-
-                # Generate tab name (you can customize this)
                 tab_name = os.path.basename(file_name)
-
                 tab_widget.addTab(image_container, tab_name)
-
             return tab_widget
-        else:  # Single image (backward compatibility)
+        else:
             return self._create_single_image_container(data)
 
     def _create_single_image_container(self, image_data):
         """Helper function to create container for a single image"""
         image_container = QWidget()
         image_layout = QVBoxLayout()
-
-        # Convert PIL Image to QPixmap
         from PIL.ImageQt import ImageQt
         original_pixmap = QPixmap.fromImage(ImageQt(image_data))
-
-        # Create scroll area for zoomable image
         image_scroll = QScrollArea()
         image_scroll.setWidgetResizable(True)
-
         image_label = QLabel()
         image_label.setPixmap(original_pixmap.scaled(
             image_scroll.size(),
@@ -678,30 +910,21 @@ class MainWindow(QMainWindow):
         ))
         image_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         image_scroll.setWidget(image_label)
-
-        # Store references for zoom functionality
-        image_label.original_pixmap = original_pixmap  # Attach to label
-        image_label.image_scroll = image_scroll  # Attach to label
-
-        # Add zoom controls
+        image_label.original_pixmap = original_pixmap
+        image_label.image_scroll = image_scroll
         zoom_controls = QHBoxLayout()
         zoom_in_btn = QPushButton("Zoom In (+)")
         zoom_out_btn = QPushButton("Zoom Out (-)")
         reset_zoom_btn = QPushButton("Reset Zoom")
-
-        # Connect zoom functions with current image's components
         zoom_in_btn.clicked.connect(lambda: self.zoom_in_image(image_label))
         zoom_out_btn.clicked.connect(lambda: self.zoom_out_image(image_label))
         reset_zoom_btn.clicked.connect(lambda: self.reset_image_zoom(image_label))
-
         zoom_controls.addWidget(zoom_in_btn)
         zoom_controls.addWidget(zoom_out_btn)
         zoom_controls.addWidget(reset_zoom_btn)
-
         image_layout.addWidget(image_scroll)
         image_layout.addLayout(zoom_controls)
         image_container.setLayout(image_layout)
-
         return image_container
 
     def zoom_in_image(self, image_label):
@@ -733,12 +956,9 @@ class MainWindow(QMainWindow):
             Qt.TransformationMode.SmoothTransformation
         ))
 
-
 def set_taskbar_icon():
-    # Windows-specific taskbar icon fix
     if sys.platform == 'win32':
         ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID('myapp.1.0')
-
 
 if __name__ == "__main__":
     app = QApplication(sys.argv)
