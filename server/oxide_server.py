@@ -100,6 +100,8 @@ def get_oxide_ppm(oxide_models, global_shift_delta, reference, config):
         integral = scipy.integrate.simpson(y, grid)
         oxides_oxygen[name] = integral
     total_oxygen = reference[3]
+    if isinstance(total_oxygen, (list, tuple, np.ndarray)):
+        total_oxygen = total_oxygen[0]
     total_oxygen_integrate = scipy.integrate.simpson(reference[0], np.linspace(0, 448.9, num=len(reference[0])))
 
     sum = 0

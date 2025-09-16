@@ -1,4 +1,5 @@
 import ctypes
+import traceback
 from itertools import chain
 from pathlib import Path
 from enum import Enum
@@ -84,6 +85,7 @@ class AnalysisThread(QThread):
             )
             self.result_ready.emit(oxides_result, data, ServerResponseType.OXIDES_PARAMS_CALCULATION)
         except Exception as e:
+            print(traceback.format_exc())
             self.result_ready.emit(None, str(e), ServerResponseType.OXIDES_PARAMS_CALCULATION)
 
     def run_file_preprocess(self):
@@ -118,6 +120,7 @@ class AnalysisThread(QThread):
             print("Reference plots generated successfully.")
         except Exception as e:
             print(f"Warning: Could not generate reference plots: {e}")
+            print(traceback.format_exc())
             reference_plots = None
 
         self.result_ready.emit(total_oxygen_list, reference_plots, ServerResponseType.EXTRACT_TOTAL_OXYGEN_COMPLETE)
@@ -160,6 +163,7 @@ class AnalysisThread(QThread):
                 )
             self.result_ready.emit(oxides_result, image, type_response)
         except Exception as e:
+            print(traceback.format_exc())
             self.result_ready.emit(None, str(e), type_response)
 
 
@@ -605,7 +609,7 @@ class MainWindow(QMainWindow):
             QMessageBox.critical(
                 self,
                 "Error",
-                f"Error in algorithm: {data}",
+                f"Error in algorithm: {data}\n Response type: {type_response}",
                 QMessageBox.StandardButton.Ok
             )
             return
